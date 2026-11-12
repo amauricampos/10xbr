@@ -15,7 +15,7 @@
     {
       "binding": "DB",
       "database_name": "tenxbr",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "0abd2abb-7799-4baf-9b59-2ebb7610b9f4",
       "migrations_dir": "migrations"
     }
   ],

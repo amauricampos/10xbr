@@ -111,7 +111,8 @@ function Workspace({ caseId }: { caseId: string }) {
               const done = c.stage > s.id || c.status === 'decided';
               const now = c.stage === s.id && c.status !== 'decided';
               const stopped = now && c.status === 'stopped';
-              const locked = c.stage < s.id;
+              // Staff can open the decision at any point, for example to decline early.
+              const locked = c.stage < s.id && !(staff && s.id === 5);
               return (
                 <button
                   key={s.id}
