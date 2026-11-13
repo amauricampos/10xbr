@@ -1,10 +1,11 @@
 import QRCode from 'qrcode';
 import { Search, ShieldAlert, ShieldCheck, Sparkles } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { KINDS, LAST_STAGE, STAGE1_RATING, STAGE2_RATING, STAGES, STATUS, type Kind, type Status } from '../../shared/process';
 import { api, type CaseSummary, type Lead } from '../api';
 import { useSession } from '../session';
+import { LeadsTable } from './Admin';
 import { Chip, Field, Nav, PageLoader, fmtDate, fmtUsd, s1Tone, s2Tone, statusTone, useAction } from '../ui';
 
 function TwoFactor() {
@@ -67,12 +68,13 @@ export function StaffHome() {
   const kind: Kind = tab === 'leads' ? 'us' : tab;
   const [filter, setFilter] = useState<Status | 'all'>('all');
   const [q, setQ] = useState('');
+  const loadLeads = useCallback(() => api.get<{ leads: Lead[] }>('/leads').then((r) => setLeads(r.leads)), []);
 
   useEffect(() => {
     if (user?.role !== 'staff') return;
     api.get<{ cases: CaseSummary[] }>('/cases').then((r) => setRows(r.cases));
-    api.get<{ leads: Lead[] }>('/leads').then((r) => setLeads(r.leads));
-  }, [user]);
+    loadLeads();
+  }, [user, loadLeads]);
 
   const ofKind = useMemo(() => (rows ?? []).filter((r) => r.kind === kind), [rows, kind]);
   const shown = useMemo(() => {
@@ -135,34 +137,7 @@ export function StaffHome() {
                   : t('Nothing matches.', 'Nada encontrado.')}
               </p>
             ) : (
-              <table className="list static cards">
-                <thead>
-                  <tr>
-                    <th>{t('Name', 'Nome')}</th>
-                    <th>Email</th>
-                    <th>{t('Track', 'Trilha')}</th>
-                    <th>L-1</th>
-                    <th>{t('Scorecard', 'Scorecard')}</th>
-                    <th>{t('Date', 'Data')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shownLeads.map((l) => (
-                    <tr key={l.id}>
-                      <td style={{ fontWeight: 600 }}>{l.name}</td>
-                      <td className="small">
-                        <a href={`mailto:${l.email}`}>{l.email}</a>
-                      </td>
-                      <td className="small">{l.kind === 'us' ? t('U.S. business', 'Negócio nos EUA') : t('Candidate', 'Candidato')}</td>
-                      <td>
-                        <Chip tone={s1Tone[l.s1_rating]}>{tl(STAGE1_RATING[l.s1_rating])}</Chip>
-                      </td>
-                      <td className="small">{l.scorecard_sent_at ? t('Emailed', 'Enviado') : <span className="faint">{t('Not emailed', 'Não enviado')}</span>}</td>
-                      <td className="small muted">{fmtDate(l.updated_at, lang)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <LeadsTable leads={shownLeads} reload={loadLeads} />
             )}
           </div>
         ) : (

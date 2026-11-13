@@ -94,6 +94,29 @@ function Workspace({ caseId }: { caseId: string }) {
   const current = view ?? c.stage;
   const props: PanelProps = { c, staff, reload, go: setView };
 
+  // An owner whose evaluation ended sees the result and nothing to fill in.
+  if (!staff && (c.status === 'stopped' || c.status === 'declined')) {
+    return (
+      <>
+        <Nav />
+        <main className="narrow stack" style={{ padding: '28px 0 64px', '--gap': '18px' } as React.CSSProperties}>
+          <div>
+            <p className="eyebrow">{tl(KINDS[c.kind].title)}</p>
+            <h2>{c.company_name || t('Your evaluation', 'Sua avaliação')}</h2>
+          </div>
+          <OwnerBanner c={c} />
+          <section className="glass pad">
+            {c.stage === 1 && c.s1_result && <Stage1ResultView kind={c.kind} result={c.s1_result} />}
+            {c.stage === 2 && <Stage2Panel {...props} />}
+            {c.stage === 3 && <DocumentsPanel {...props} />}
+            {c.stage === 4 && <VerificationPanel {...props} />}
+          </section>
+          <Disclaimer />
+        </main>
+      </>
+    );
+  }
+
   return (
     <>
       <Nav />
@@ -112,9 +135,6 @@ function Workspace({ caseId }: { caseId: string }) {
               <>
                 <Link className="btn sm" to={`/report/${c.id}`}>
                   <FileText size={15} /> {t('Report', 'Relatório')}
-                </Link>
-                <Link className="btn sm" to="/staff">
-                  {t('Dashboard', 'Painel')}
                 </Link>
               </>
             )}
@@ -196,8 +216,8 @@ function OwnerBanner({ c }: { c: Case }) {
     return (
       <div className="banner bad">
         {t(
-          'This step did not pass, so the evaluation is paused here. Our team reviews every paused evaluation and will reach out if there is a path forward.',
-          'Esta etapa não foi aprovada, então a avaliação está pausada aqui. Nossa equipe revisa toda avaliação pausada e entrará em contato se houver um caminho.',
+          'This step did not pass, so the evaluation stops here. Nothing else is needed from you. Our team reads every result and will email you if we see a way forward.',
+          'Esta etapa não foi aprovada, então a avaliação para aqui. Não é preciso fazer mais nada. Nossa equipe lê todo resultado e enviará um e-mail se houver um caminho.',
         )}
       </div>
     );

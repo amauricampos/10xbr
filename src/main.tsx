@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AdminHome, Join } from './pages/Admin';
 import { Brand } from './pages/Brand';
 import { MarketingLanding } from './pages/Marketing';
 import { Landing, QuickCheck, Resume, Setup, SignIn, SignUp } from './pages/Public';
@@ -25,6 +26,8 @@ function App() {
       <Route path="/setup" element={<Setup />} />
       <Route path="/app" element={<AppHome />} />
       <Route path="/staff" element={<StaffHome />} />
+      <Route path="/admin" element={<AdminHome />} />
+      <Route path="/join/:token" element={<Join />} />
       <Route path="/case/:id" element={<StaffCase />} />
       <Route path="/report/:id" element={<Report />} />
       <Route path="/brand" element={<Brand />} />

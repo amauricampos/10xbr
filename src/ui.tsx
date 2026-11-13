@@ -1,6 +1,6 @@
 import { Loader2, LogOut, ShieldCheck } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { api } from './api';
 import { useSession } from './session';
 
@@ -32,6 +32,18 @@ export function Nav({ children }: { children?: ReactNode }) {
           <Logo />
         </Link>
         <div className="row" style={{ '--gap': '4px' } as React.CSSProperties}>
+          {user?.role === 'staff' && (
+            <>
+              <NavLink className="btn ghost sm navlink" to="/staff">
+                {t('Records', 'Registros')}
+              </NavLink>
+              {!!user.is_admin && (
+                <NavLink className="btn ghost sm navlink" to="/admin">
+                  {t('Admin', 'Admin')}
+                </NavLink>
+              )}
+            </>
+          )}
           {children}
           <LangToggle />
           {user ? (

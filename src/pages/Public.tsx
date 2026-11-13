@@ -9,14 +9,15 @@ import { Disclaimer, Field, Nav, PageLoader, useAction } from '../ui';
 
 const DRAFT_KEY = 'quickcheck';
 type Contact = { name: string; email: string };
-type Draft = { kind: Kind; answers: Stage1Answers | null; contact?: Contact | null };
+/** `cleared`: the team opened the next step for a result that did not pass. */
+type Draft = { kind: Kind; answers: Stage1Answers | null; contact?: Contact | null; cleared?: boolean };
 
 export function loadDraft(): Draft | null {
   try {
     const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? 'null') as Draft | null;
     if (!d || (d.kind !== 'us' && d.kind !== 'br')) return null;
     const contact = d.contact && typeof d.contact.email === 'string' && typeof d.contact.name === 'string' ? d.contact : null;
-    return { kind: d.kind, answers: d.answers && stage1Complete(d.kind, d.answers) ? d.answers : null, contact };
+    return { kind: d.kind, answers: d.answers && stage1Complete(d.kind, d.answers) ? d.answers : null, contact, cleared: d.cleared === true };
   } catch {
     return null;
   }
@@ -212,15 +213,30 @@ export function QuickCheck() {
                   </span>
                 </div>
               )}
+              {!result.passed && draft?.cleared && (
+                <div className="banner good">
+                  {t('Our team reviewed this result and opened the next step for you.', 'Nossa equipe revisou este resultado e liberou a próxima etapa para você.')}
+                </div>
+              )}
               <Stage1ResultView kind={kind} result={result} />
-              <Link to="/signup" className="btn primary lg">
-                {result.passed ? t('Save and continue', 'Salvar e continuar') : t('Save and talk to us', 'Salvar e falar conosco')} <ArrowRight size={18} />
-              </Link>
-              <p className="small muted">
-                {result.passed
-                  ? t('Next: five minutes on the business numbers.', 'Próximo passo: cinco minutos sobre os números do negócio.')
-                  : t('Create an account so our team can review this and suggest a path.', 'Crie uma conta para nossa equipe revisar e sugerir um caminho.')}
-              </p>
+              {result.passed || draft?.cleared ? (
+                <>
+                  <Link to="/signup" className="btn primary lg">
+                    {t('Save and continue', 'Salvar e continuar')} <ArrowRight size={18} />
+                  </Link>
+                  <p className="small muted">{t('Next: five minutes on the business numbers.', 'Próximo passo: cinco minutos sobre os números do negócio.')}</p>
+                </>
+              ) : (
+                <div className="glass pad-sm stack" style={{ '--gap': '6px' } as React.CSSProperties}>
+                  <strong>{t('You are done. Nothing else is needed.', 'Pronto. Não é preciso fazer mais nada.')}</strong>
+                  <p className="small muted">
+                    {t(
+                      'Your result is saved. Our team reads every one and will email you if we see a way forward.',
+                      'Seu resultado está salvo. Nossa equipe lê todos e enviará um e-mail se houver um caminho.',
+                    )}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -238,9 +254,9 @@ export function Resume() {
   const [to, setTo] = useState<string | null>(null);
   useEffect(() => {
     api
-      .get<{ kind: Kind; name: string; email: string; answers: Stage1Answers }>(`/leads/${id}`)
+      .get<{ kind: Kind; name: string; email: string; answers: Stage1Answers; cleared: boolean }>(`/leads/${id}`)
       .then((l) => {
-        saveDraft({ kind: l.kind, answers: l.answers, contact: { name: l.name, email: l.email } });
+        saveDraft({ kind: l.kind, answers: l.answers, contact: { name: l.name, email: l.email }, cleared: l.cleared });
         setTo(`/check/${l.kind}`);
       })
       .catch(() => setTo('/'));
@@ -275,6 +291,8 @@ export function SignUp() {
   const { busy, error, run } = useAction();
   if (user) return <Navigate to="/app" replace />;
   if (!draft?.answers) return <Navigate to="/" replace />;
+  // A result that did not pass ends at the scorecard until the team opens the next step.
+  if (!draft.cleared && !scoreStage1(draft.kind, draft.answers).passed) return <Navigate to={`/check/${draft.kind}`} replace />;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

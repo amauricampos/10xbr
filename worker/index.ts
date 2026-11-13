@@ -19,7 +19,7 @@ import { HttpError, now, type AppEnv, type Env, type User } from './env';
 import { MAX_FILE_BYTES, MAX_FILES_PER_CASE, cleanFilename, deleteFile, getFile, putFile, sniff } from './storage';
 import { docLabel, docsFor } from '../shared/documents';
 import { NDA_VERSION, ndaText } from '../shared/legal';
-import { mailReady, scorecardEmail, sendMail } from './scorecard';
+import { mailReady, noticeEmail, scorecardEmail, sendMail } from './scorecard';
 import {
   DISCLOSURES,
   LAST_STAGE,
@@ -67,8 +67,8 @@ app.use('*', async (c, next) => {
   const token = getCookie(c, cookieName(c));
   if (token) {
     const row = await c.env.DB.prepare(
-      `SELECT u.id, u.email, u.name, u.role, u.lang, u.totp_enabled, s.expires_at
-       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`,
+      `SELECT u.id, u.email, u.name, u.role, u.lang, u.totp_enabled, u.is_admin, s.expires_at
+       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND u.disabled = 0`,
     )
       .bind(await sha256Hex(token))
       .first<User & { expires_at: number }>();
@@ -101,6 +101,12 @@ function requireUser(c: Context<AppEnv>): User {
 function requireStaff(c: Context<AppEnv>): User {
   const u = requireUser(c);
   if (u.role !== 'staff') throw new HttpError(403, 'forbidden');
+  return u;
+}
+
+function requireAdmin(c: Context<AppEnv>): User {
+  const u = requireStaff(c);
+  if (!u.is_admin) throw new HttpError(403, 'forbidden');
   return u;
 }
 
@@ -148,6 +154,13 @@ const Name = z.string().trim().min(2).max(120);
 const LangZ = z.enum(['en', 'pt']);
 const KindZ = z.enum(['us', 'br']);
 
+/** Compares a stored answer set with a submitted one, whatever the key order. */
+function sameAnswers(stored: string, given: Record<string, string>): boolean {
+  const a = JSON.parse(stored) as Record<string, string>;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(given).length && keys.every((k) => a[k] === given[k]);
+}
+
 async function staffExists(env: Env): Promise<boolean> {
   return !!(await env.DB.prepare("SELECT 1 AS x FROM users WHERE role = 'staff' LIMIT 1").first());
 }
@@ -184,23 +197,36 @@ app.post('/auth/register', async (c) => {
   let status: Status = 'active';
   let s1a: string | null = null;
   let s1r: string | null = null;
+  let history = '[]';
   if (body.s1_answers && stage1Complete(body.kind, body.s1_answers)) {
     const result = scoreStage1(body.kind, body.s1_answers);
     s1a = JSON.stringify(body.s1_answers);
     s1r = JSON.stringify(result);
     stage = result.passed ? 2 : 1;
     status = result.passed ? 'active' : 'stopped';
+    if (!result.passed) {
+      // A failed screen ends at the scorecard. An account opens only after the team clears that result.
+      const lead = await c.env.DB.prepare('SELECT s1_answers, cleared_at, cleared_by, cleared_note FROM leads WHERE email = ? AND kind = ?')
+        .bind(body.email, body.kind)
+        .first<{ s1_answers: string; cleared_at: number | null; cleared_by: string | null; cleared_note: string | null }>();
+      if (!lead?.cleared_at || !sameAnswers(lead.s1_answers, body.s1_answers)) {
+        throw new HttpError(403, 'not_cleared', 'Our team needs to review this result before an account can be created.');
+      }
+      stage = 2;
+      status = 'active';
+      history = JSON.stringify([{ at: lead.cleared_at, by: lead.cleared_by ?? '', action: 'approve', stage: 1, from: 'stopped', note: lead.cleared_note ?? '' }]);
+    }
   }
 
   await c.env.DB.batch([
     c.env.DB.prepare("INSERT INTO users (id, email, name, role, pw_hash, pw_salt, lang, created_at) VALUES (?, ?, ?, 'applicant', ?, ?, ?, ?)").bind(
       userId, body.email, body.name, hash, salt, body.lang, t,
     ),
-    c.env.DB.prepare('INSERT INTO cases (id, user_id, kind, stage, status, s1_answers, s1_result, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
-      caseId, userId, body.kind, stage, status, s1a, s1r, t, t,
+    c.env.DB.prepare('INSERT INTO cases (id, user_id, kind, stage, status, s1_answers, s1_result, history, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
+      caseId, userId, body.kind, stage, status, s1a, s1r, history, t, t,
     ),
   ]);
-  const user: User = { id: userId, email: body.email, name: body.name, role: 'applicant', lang: body.lang, totp_enabled: 0 };
+  const user: User = { id: userId, email: body.email, name: body.name, role: 'applicant', lang: body.lang, totp_enabled: 0, is_admin: 0 };
   await startSession(c, user);
   await audit(c, 'account.created', caseId, { kind: body.kind }, user);
   if (s1a) c.executionCtx.waitUntil(runReview(c.env, caseId));
@@ -217,7 +243,9 @@ app.post('/leads', async (c) => {
   const t = now();
   const row = await c.env.DB.prepare(
     `INSERT INTO leads (id, email, name, kind, lang, s1_answers, s1_rating, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (email, kind) DO UPDATE SET name = excluded.name, lang = excluded.lang, s1_answers = excluded.s1_answers, s1_rating = excluded.s1_rating, updated_at = excluded.updated_at
+     ON CONFLICT (email, kind) DO UPDATE SET name = excluded.name, lang = excluded.lang,
+       cleared_at = CASE WHEN leads.s1_answers = excluded.s1_answers THEN leads.cleared_at ELSE NULL END,
+       s1_answers = excluded.s1_answers, s1_rating = excluded.s1_rating, updated_at = excluded.updated_at
      RETURNING id`,
   )
     .bind(randomToken(16), body.email, body.name, body.kind, body.lang, JSON.stringify(body.s1_answers), result.rating, t, t)
@@ -245,21 +273,59 @@ app.post('/leads', async (c) => {
 /** Opens a saved result from the link in the scorecard email. The id is an unguessable token. */
 app.get('/leads/:id', async (c) => {
   await rateLimit(c.env, `resume:${c.get('ip')}`, 30, 3600);
-  const row = await c.env.DB.prepare('SELECT kind, name, email, s1_answers FROM leads WHERE id = ?')
+  const row = await c.env.DB.prepare('SELECT kind, name, email, s1_answers, cleared_at FROM leads WHERE id = ?')
     .bind(c.req.param('id'))
-    .first<{ kind: Kind; name: string; email: string; s1_answers: string }>();
+    .first<{ kind: Kind; name: string; email: string; s1_answers: string; cleared_at: number | null }>();
   if (!row) throw new HttpError(404, 'not_found');
-  return c.json({ kind: row.kind, name: row.name, email: row.email, answers: JSON.parse(row.s1_answers) });
+  return c.json({ kind: row.kind, name: row.name, email: row.email, answers: JSON.parse(row.s1_answers), cleared: !!row.cleared_at });
 });
 
 /** People who saw a result but have not created an account. */
 app.get('/leads', async (c) => {
   requireStaff(c);
   const { results } = await c.env.DB.prepare(
-    `SELECT l.id, l.email, l.name, l.kind, l.s1_rating, l.updated_at, l.scorecard_sent_at FROM leads l
+    `SELECT l.id, l.email, l.name, l.kind, l.lang, l.s1_rating, l.s1_answers, l.updated_at, l.scorecard_sent_at, l.cleared_at, l.cleared_by FROM leads l
      LEFT JOIN users u ON u.email = l.email WHERE u.id IS NULL ORDER BY l.updated_at DESC LIMIT 500`,
   ).all();
-  return c.json({ leads: results });
+  return c.json({ leads: results.map((l) => ({ ...l, s1_answers: parse(l.s1_answers as string) })) });
+});
+
+/** The team opens the next step for a lead whose L-1 screen failed, and the lead is told by email. */
+app.post('/leads/:id/clear', async (c) => {
+  const u = requireStaff(c);
+  const { note } = z.object({ note: z.string().trim().min(5).max(1000) }).parse(await c.req.json());
+  const lead = await c.env.DB.prepare('SELECT id, email, name, kind, lang, s1_rating, cleared_at FROM leads WHERE id = ?')
+    .bind(c.req.param('id'))
+    .first<{ id: string; email: string; name: string; kind: Kind; lang: 'en' | 'pt'; s1_rating: string; cleared_at: number | null }>();
+  if (!lead) throw new HttpError(404, 'not_found');
+  if (lead.s1_rating !== 'not_compliant' || lead.cleared_at) throw new HttpError(409, 'not_needed', 'This result does not need to be cleared.');
+  await c.env.DB.prepare('UPDATE leads SET cleared_at = ?, cleared_by = ?, cleared_note = ? WHERE id = ?').bind(now(), u.email, note, lead.id).run();
+  await audit(c, 'lead.cleared', null, { lead: lead.email, kind: lead.kind, note });
+  const link = `${new URL(c.req.url).origin}/resume/${lead.id}`;
+  const en = lead.lang === 'en';
+  const first = lead.name.trim().split(/\s+/)[0] ?? '';
+  const emailed = await sendMail(c.env, {
+    to: lead.email,
+    ...noticeEmail({
+      subject: en ? 'Your 10x BR evaluation can continue' : 'Sua avaliação na 10x BR pode continuar',
+      greeting: en ? `Hi ${first},` : `Olá, ${first},`,
+      lines: en
+        ? ['Our team reviewed your L-1 scorecard and opened the next step for you.', 'It takes about five minutes: a few numbers about the business.']
+        : ['Nossa equipe revisou o seu scorecard L-1 e liberou a próxima etapa para você.', 'Leva cerca de cinco minutos: alguns números sobre o negócio.'],
+      cta: en ? 'Continue the evaluation' : 'Continuar a avaliação',
+      link,
+      footer: en ? '10x BR is a screening tool, not legal or investment advice.' : 'A 10x BR é uma ferramenta de triagem, não aconselhamento jurídico ou de investimento.',
+    }),
+  });
+  return c.json({ ok: true, emailed, link });
+});
+
+app.delete('/leads/:id', async (c) => {
+  requireAdmin(c);
+  const lead = await c.env.DB.prepare('DELETE FROM leads WHERE id = ? RETURNING email, kind').bind(c.req.param('id')).first<{ email: string; kind: string }>();
+  if (!lead) throw new HttpError(404, 'not_found');
+  await audit(c, 'lead.deleted', null, { lead: lead.email, kind: lead.kind });
+  return c.json({ ok: true });
 });
 
 app.post('/auth/login', async (c) => {
@@ -267,12 +333,12 @@ app.post('/auth/login', async (c) => {
   await rateLimit(c.env, `login:${c.get('ip')}`, 20, 900);
   await rateLimit(c.env, `login:${body.email}`, 8, 900);
 
-  const row = await c.env.DB.prepare('SELECT id, email, name, role, lang, totp_enabled, totp_secret, pw_hash, pw_salt FROM users WHERE email = ?')
+  const row = await c.env.DB.prepare('SELECT id, email, name, role, lang, totp_enabled, is_admin, disabled, totp_secret, pw_hash, pw_salt FROM users WHERE email = ?')
     .bind(body.email)
-    .first<User & { totp_secret: string | null; pw_hash: string; pw_salt: string }>();
+    .first<User & { disabled: number; totp_secret: string | null; pw_hash: string; pw_salt: string }>();
   // Hash even when the user is unknown so timing does not reveal which emails exist.
   const { hash } = await hashPassword(body.password, row?.pw_salt ?? 'AAAAAAAAAAAAAAAAAAAAAA==');
-  if (!row || !(await safeEqual(hash, row.pw_hash))) {
+  if (!row || row.disabled || !(await safeEqual(hash, row.pw_hash))) {
     await audit(c, 'login.failed', null, { email: body.email });
     throw new HttpError(401, 'invalid_credentials', 'Email or password is incorrect.');
   }
@@ -284,7 +350,7 @@ app.post('/auth/login', async (c) => {
       throw new HttpError(401, 'invalid_code', 'That code is not valid.');
     }
   }
-  const user: User = { id: row.id, email: row.email, name: row.name, role: row.role, lang: row.lang, totp_enabled: row.totp_enabled };
+  const user: User = { id: row.id, email: row.email, name: row.name, role: row.role, lang: row.lang, totp_enabled: row.totp_enabled, is_admin: row.is_admin };
   await startSession(c, user);
   await audit(c, 'login.ok', null, null, user);
   return c.json({ user });
@@ -308,7 +374,8 @@ app.post('/auth/setup', async (c) => {
   await c.env.DB.prepare("INSERT INTO users (id, email, name, role, pw_hash, pw_salt, lang, created_at) VALUES (?, ?, ?, 'staff', ?, ?, 'en', ?)")
     .bind(id, body.email, body.name, hash, salt, now())
     .run();
-  const user: User = { id, email: body.email, name: body.name, role: 'staff', lang: 'en', totp_enabled: 0 };
+  await c.env.DB.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').bind(id).run();
+  const user: User = { id, email: body.email, name: body.name, role: 'staff', lang: 'en', totp_enabled: 0, is_admin: 1 };
   await startSession(c, user);
   await audit(c, 'staff.created', null, null, user);
   return c.json({ user });
@@ -841,6 +908,219 @@ app.get('/cases/:id/audit', async (c) => {
   const row = await loadCase(c, c.req.param('id'));
   const rows = await c.env.DB.prepare('SELECT at, actor_email, action, detail FROM audit_log WHERE case_id = ? ORDER BY id DESC LIMIT 200').bind(row.id).all();
   return c.json({ events: rows.results });
+});
+
+/* ------------------------------------------------------------------ */
+/* Admin                                                               */
+/* ------------------------------------------------------------------ */
+
+const INVITE_MS = 7 * 24 * 3600 * 1000;
+
+app.get('/admin/overview', async (c) => {
+  requireAdmin(c);
+  const weekAgo = now() - 7 * 24 * 3600 * 1000;
+  const [leads, cases, users] = await Promise.all([
+    c.env.DB.prepare('SELECT kind, s1_rating, COUNT(*) AS n, SUM(created_at >= ?1) AS recent FROM leads GROUP BY kind, s1_rating').bind(weekAgo).all<{
+      kind: Kind;
+      s1_rating: string;
+      n: number;
+      recent: number;
+    }>(),
+    c.env.DB.prepare('SELECT kind, stage, status, COUNT(*) AS n, SUM(created_at >= ?1) AS recent FROM cases GROUP BY kind, stage, status').bind(weekAgo).all<{
+      kind: Kind;
+      stage: number;
+      status: Status;
+      n: number;
+      recent: number;
+    }>(),
+    c.env.DB.prepare('SELECT role, COUNT(*) AS n FROM users WHERE disabled = 0 GROUP BY role').all<{ role: string; n: number }>(),
+  ]);
+  const track = (kind: Kind) => {
+    const l = leads.results.filter((r) => r.kind === kind);
+    const k = cases.results.filter((r) => r.kind === kind);
+    const sum = <T extends { n: number }>(rows: T[], keep: (r: T) => boolean = () => true) => rows.filter(keep).reduce((n, r) => n + r.n, 0);
+    return {
+      answered: sum(l),
+      answered_week: l.reduce((n, r) => n + (r.recent ?? 0), 0),
+      l1: { compliant: sum(l, (r) => r.s1_rating === 'compliant'), gaps: sum(l, (r) => r.s1_rating === 'gaps'), not_compliant: sum(l, (r) => r.s1_rating === 'not_compliant') },
+      accounts: sum(k),
+      accounts_week: k.reduce((n, r) => n + (r.recent ?? 0), 0),
+      health: sum(k, (r) => r.stage >= 3),
+      documents: sum(k, (r) => r.stage >= 4),
+      catalog: sum(k, (r) => r.status === 'approved'),
+      waiting: sum(k, (r) => r.status === 'review'),
+      stopped: sum(k, (r) => r.status === 'stopped'),
+      declined: sum(k, (r) => r.status === 'declined'),
+    };
+  };
+  const count = (role: string) => users.results.find((r) => r.role === role)?.n ?? 0;
+  return c.json({ us: track('us'), br: track('br'), team: count('staff'), owners: count('applicant'), mail: mailReady(c.env), ai: !!c.env.AI });
+});
+
+app.get('/admin/users', async (c) => {
+  requireAdmin(c);
+  const [users, invites] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT u.id, u.email, u.name, u.role, u.is_admin, u.disabled, u.totp_enabled, u.created_at,
+              (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_seen,
+              k.id AS case_id, k.kind, k.stage, k.status, k.company_name
+       FROM users u LEFT JOIN cases k ON k.user_id = u.id ORDER BY u.created_at DESC LIMIT 2000`,
+    ).all(),
+    c.env.DB.prepare('SELECT id, email, is_admin, created_by, created_at, expires_at FROM invites WHERE used_at IS NULL AND expires_at > ? ORDER BY created_at DESC').bind(now()).all(),
+  ]);
+  return c.json({ users: users.results, invites: invites.results });
+});
+
+app.post('/admin/invites', async (c) => {
+  const u = requireAdmin(c);
+  const body = z.object({ email: Email, is_admin: z.boolean().default(false) }).parse(await c.req.json());
+  if (await c.env.DB.prepare('SELECT 1 AS x FROM users WHERE email = ?').bind(body.email).first()) {
+    throw new HttpError(409, 'email_taken', 'An account with this email already exists.');
+  }
+  const token = randomToken(32);
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM invites WHERE email = ? AND used_at IS NULL').bind(body.email),
+    c.env.DB.prepare('INSERT INTO invites (id, token_hash, email, is_admin, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
+      randomToken(12), await sha256Hex(token), body.email, body.is_admin ? 1 : 0, u.email, now(), now() + INVITE_MS,
+    ),
+  ]);
+  await audit(c, 'team.invited', null, { email: body.email, admin: body.is_admin });
+  const link = `${new URL(c.req.url).origin}/join/${token}`;
+  const emailed = await sendMail(c.env, {
+    to: body.email,
+    ...noticeEmail({
+      subject: 'You are invited to the 10x BR team',
+      greeting: 'Hello,',
+      lines: [`${u.name} invited you to review evaluations on 10x BR.`, 'The link works once and expires in seven days.'],
+      cta: 'Create your team account',
+      link,
+      footer: 'If you were not expecting this, ignore this email.',
+    }),
+  });
+  // The link is shown once so it can be passed on by hand when mail is not set up.
+  return c.json({ link, emailed });
+});
+
+app.delete('/admin/invites/:id', async (c) => {
+  requireAdmin(c);
+  const row = await c.env.DB.prepare('DELETE FROM invites WHERE id = ? RETURNING email').bind(c.req.param('id')).first<{ email: string }>();
+  if (!row) throw new HttpError(404, 'not_found');
+  await audit(c, 'team.invite_revoked', null, { email: row.email });
+  return c.json({ ok: true });
+});
+
+app.put('/admin/users/:id', async (c) => {
+  const u = requireAdmin(c);
+  const body = z.object({ disabled: z.boolean().optional(), is_admin: z.boolean().optional(), reset_totp: z.literal(true).optional() }).parse(await c.req.json());
+  const target = await c.env.DB.prepare('SELECT id, email, role FROM users WHERE id = ?').bind(c.req.param('id')).first<{ id: string; email: string; role: string }>();
+  if (!target) throw new HttpError(404, 'not_found');
+  // Nobody changes their own access, so the team can never be left without an admin.
+  if (target.id === u.id) throw new HttpError(409, 'self', 'Ask another admin to change your own access.');
+  if (body.is_admin !== undefined && target.role !== 'staff') throw new HttpError(409, 'not_team');
+
+  const stmts: D1PreparedStatement[] = [];
+  if (body.disabled !== undefined) {
+    stmts.push(c.env.DB.prepare('UPDATE users SET disabled = ? WHERE id = ?').bind(body.disabled ? 1 : 0, target.id));
+    if (body.disabled) stmts.push(c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id));
+  }
+  if (body.is_admin !== undefined) stmts.push(c.env.DB.prepare('UPDATE users SET is_admin = ? WHERE id = ?').bind(body.is_admin ? 1 : 0, target.id));
+  if (body.reset_totp) {
+    stmts.push(c.env.DB.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE id = ?').bind(target.id));
+    stmts.push(c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id));
+  }
+  if (!stmts.length) throw new HttpError(400, 'nothing_to_do');
+  await c.env.DB.batch(stmts);
+  await audit(c, 'user.updated', null, { user: target.email, ...body });
+  return c.json({ ok: true });
+});
+
+app.get('/admin/audit', async (c) => {
+  requireAdmin(c);
+  const before = Number(c.req.query('before')) || Number.MAX_SAFE_INTEGER;
+  const { results } = await c.env.DB.prepare(
+    `SELECT a.id, a.at, a.actor_email, a.action, a.case_id, a.detail, a.ip, k.company_name
+     FROM audit_log a LEFT JOIN cases k ON k.id = a.case_id WHERE a.id < ? ORDER BY a.id DESC LIMIT 100`,
+  )
+    .bind(before)
+    .all();
+  return c.json({ events: results });
+});
+
+/** Spreadsheets treat a leading = + - @ as a formula, so those cells are prefixed with a quote. */
+const csvCell = (v: unknown) => {
+  let s = v == null ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+const toCsv = (head: string[], rows: unknown[][]) => [head, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n');
+const isoDate = (ms: number | null) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
+
+app.get('/admin/export/:what', async (c) => {
+  requireAdmin(c);
+  const what = c.req.param('what');
+  let csv: string;
+  if (what === 'leads') {
+    const { results } = await c.env.DB.prepare(
+      `SELECT l.name, l.email, l.kind, l.lang, l.s1_rating, l.created_at, l.updated_at, l.scorecard_sent_at, l.cleared_at, u.id AS user_id
+       FROM leads l LEFT JOIN users u ON u.email = l.email ORDER BY l.updated_at DESC`,
+    ).all<Record<string, string | number | null>>();
+    csv = toCsv(
+      ['name', 'email', 'track', 'language', 'l1_result', 'first_seen', 'last_update', 'scorecard_emailed', 'cleared_by_team', 'has_account'],
+      results.map((r) => [r.name, r.email, r.kind, r.lang, r.s1_rating, isoDate(r.created_at as number), isoDate(r.updated_at as number), r.scorecard_sent_at ? 'yes' : 'no', r.cleared_at ? 'yes' : 'no', r.user_id ? 'yes' : 'no']),
+    );
+  } else if (what === 'records') {
+    const { results } = await c.env.DB.prepare(
+      `SELECT k.kind, k.company_name, k.industry, k.location, k.stage, k.status, k.s1_result, k.s2_result, k.s2_answers, k.created_at, k.updated_at, u.name, u.email
+       FROM cases k JOIN users u ON u.id = k.user_id ORDER BY k.updated_at DESC`,
+    ).all<Record<string, string | number | null>>();
+    csv = toCsv(
+      ['track', 'company', 'industry', 'location', 'owner', 'email', 'stage', 'status', 'l1_result', 'health_result', 'price_or_funds_usd', 'created', 'updated'],
+      results.map((r) => {
+        const s2a = parse<Stage2Answers>(r.s2_answers as string | null);
+        return [
+          r.kind, r.company_name, r.industry, r.location, r.name, r.email, r.stage, r.status,
+          parse<Stage1Result>(r.s1_result as string | null)?.rating ?? '',
+          parse<Stage2Result>(r.s2_result as string | null)?.rating ?? '',
+          s2a ? (r.kind === 'us' ? s2a.price : s2a.invest_usd) ?? '' : '',
+          isoDate(r.created_at as number), isoDate(r.updated_at as number),
+        ];
+      }),
+    );
+  } else throw new HttpError(404, 'not_found');
+  await audit(c, 'export.downloaded', null, { what });
+  return new Response(csv, {
+    headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="10xbr-${what}-${isoDate(now())}.csv"` },
+  });
+});
+
+/** Shows who a team invite is for. The token is unguessable and single-use. */
+app.get('/invites/:token', async (c) => {
+  await rateLimit(c.env, `invite:${c.get('ip')}`, 30, 3600);
+  const row = await c.env.DB.prepare('SELECT email FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?')
+    .bind(await sha256Hex(c.req.param('token')), now())
+    .first<{ email: string }>();
+  if (!row) throw new HttpError(404, 'not_found');
+  return c.json({ email: row.email });
+});
+
+app.post('/auth/join', async (c) => {
+  await rateLimit(c.env, `invite:${c.get('ip')}`, 30, 3600);
+  const body = z.object({ token: z.string().min(10).max(200), name: Name, password: Password }).parse(await c.req.json());
+  // Claiming the invite in one statement means two requests cannot both use it.
+  const invite = await c.env.DB.prepare('UPDATE invites SET used_at = ?1 WHERE token_hash = ?2 AND used_at IS NULL AND expires_at > ?1 RETURNING email, is_admin')
+    .bind(now(), await sha256Hex(body.token))
+    .first<{ email: string; is_admin: number }>();
+  if (!invite) throw new HttpError(404, 'not_found', 'This invitation is no longer valid. Ask for a new one.');
+  if (await c.env.DB.prepare('SELECT 1 AS x FROM users WHERE email = ?').bind(invite.email).first()) throw new HttpError(409, 'email_taken');
+  const { hash, salt } = await hashPassword(body.password);
+  const id = randomToken(16);
+  await c.env.DB.prepare("INSERT INTO users (id, email, name, role, is_admin, pw_hash, pw_salt, lang, created_at) VALUES (?, ?, ?, 'staff', ?, ?, ?, 'en', ?)")
+    .bind(id, invite.email, body.name, invite.is_admin, hash, salt, now())
+    .run();
+  const user: User = { id, email: invite.email, name: body.name, role: 'staff', lang: 'en', totp_enabled: 0, is_admin: invite.is_admin };
+  await startSession(c, user);
+  await audit(c, 'team.joined', null, null, user);
+  return c.json({ user });
 });
 
 app.all('*', () => {

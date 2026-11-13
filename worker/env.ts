@@ -26,6 +26,8 @@ export type User = {
   role: 'applicant' | 'staff';
   lang: 'en' | 'pt';
   totp_enabled: number;
+  /** Team members only: can manage the team, accounts and exports. */
+  is_admin: number;
 };
 
 export type Vars = { user: User | null; ip: string };

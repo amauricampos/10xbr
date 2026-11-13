@@ -28,7 +28,7 @@ export const api = {
   del: <T>(p: string) => request<T>('DELETE', p),
 };
 
-export type User = { id: string; email: string; name: string; role: 'applicant' | 'staff'; lang: 'en' | 'pt'; totp_enabled: number };
+export type User = { id: string; email: string; name: string; role: 'applicant' | 'staff'; lang: 'en' | 'pt'; totp_enabled: number; is_admin: number };
 export type Config = { entity: string; openSignup: boolean; setupNeeded: boolean; ai: boolean; mail?: boolean };
 
 export type AiResult = {
@@ -109,7 +109,11 @@ export type Lead = {
   email: string;
   name: string;
   kind: import('../shared/process').Kind;
+  lang: 'en' | 'pt';
   s1_rating: import('../shared/process').Stage1Rating;
+  s1_answers: Record<string, string>;
   updated_at: number;
   scorecard_sent_at: number | null;
+  cleared_at: number | null;
+  cleared_by: string | null;
 };

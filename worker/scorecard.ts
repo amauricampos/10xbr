@@ -25,14 +25,14 @@ export function scorecardEmail(o: { kind: Kind; lang: Lang; name: string; result
   const first = o.name.trim().split(/\s+/)[0] ?? '';
   const subject = en ? `Your L-1 scorecard: ${met} of ${total} requirements met` : `Seu scorecard L-1: ${met} de ${total} requisitos atendidos`;
   const metLine = en ? `${met} of ${total} requirements met` : `${met} de ${total} requisitos atendidos`;
-  const cta = result.passed ? (en ? 'Continue the evaluation' : 'Continuar a avaliação') : en ? 'Save and talk to our team' : 'Salvar e falar com a equipe';
+  const cta = result.passed ? (en ? 'Continue the evaluation' : 'Continuar a avaliação') : en ? 'Open your scorecard' : 'Abrir seu scorecard';
   const next = result.passed
     ? en
       ? 'Next step: five minutes on the business numbers.'
       : 'Próximo passo: cinco minutos sobre os números do negócio.'
     : en
-      ? 'Our team reviews every result and will reach out if there is a path forward.'
-      : 'Nossa equipe revisa todo resultado e entrará em contato se houver um caminho.';
+      ? 'Nothing else is needed from you. Our team reads every result and will email you if we see a way forward.'
+      : 'Não é preciso fazer mais nada. Nossa equipe lê todo resultado e enviará um e-mail se houver um caminho.';
   const disclaimer = en
     ? '10x BR is a screening tool, not legal or investment advice. Only a licensed immigration attorney can advise on visa eligibility.'
     : 'A 10x BR é uma ferramenta de triagem, não aconselhamento jurídico ou de investimento. Somente um advogado de imigração habilitado pode orientar sobre elegibilidade a vistos.';
@@ -86,6 +86,23 @@ ${f.level !== 'pass' && f.note ? `<div style="font-size:13px;color:#4b5563;margi
   ].join('\n');
 
   return { subject, html, text };
+}
+
+/** A short notice with one button. Every interpolated value is escaped. */
+export function noticeEmail(o: { subject: string; greeting: string; lines: string[]; cta: string; link: string; footer: string }) {
+  const html = `<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111827">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden">
+<tr><td style="background:#070b14;padding:22px 28px;color:#ffffff;font-size:20px;font-weight:700">10x <span style="color:#8fb8ff;font-weight:600">BR</span></td></tr>
+<tr><td style="padding:28px;font-size:15px;line-height:1.55">
+<p style="margin:0 0 14px">${esc(o.greeting)}</p>
+${o.lines.map((l) => `<p style="margin:0 0 14px">${esc(l)}</p>`).join('\n')}
+<p style="margin:22px 0 8px"><a href="${esc(o.link)}" style="display:inline-block;background:#3b9bff;color:#06101f;font-weight:700;text-decoration:none;padding:13px 24px;border-radius:999px">${esc(o.cta)}</a></p>
+</td></tr>
+<tr><td style="padding:18px 28px;background:#f9fafb;color:#6b7280;font-size:12px;line-height:1.5">${esc(o.footer)}</td></tr>
+</table></td></tr></table></body></html>`;
+  const text = [o.greeting, '', ...o.lines, '', `${o.cta}: ${o.link}`, '', o.footer].join('\n');
+  return { subject: o.subject, html, text };
 }
 
 export const mailReady = (env: Env) => !!(env.RESEND_API_KEY && env.MAIL_FROM);

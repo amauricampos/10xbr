@@ -1269,3 +1269,60 @@ table.list.static tbody tr {
     padding: 10px 14px;
   }
 }
+
+/* ---------- Admin ---------- */
+.navlink.active {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.1);
+}
+table.list tr.detail,
+table.list tr.detail:hover {
+  cursor: default;
+  background: rgba(255, 255, 255, 0.03);
+}
+table.list tr.detail td {
+  border-top: 0;
+  padding: 4px 18px 18px;
+}
+.funnel-row {
+  display: grid;
+  grid-template-columns: minmax(0, 190px) minmax(0, 1fr) 36px;
+  gap: 12px;
+  align-items: center;
+}
+.funnel-row strong {
+  text-align: right;
+}
+.funnel-row .bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+.funnel-row .bar i {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--mint), var(--azure));
+}
+.activity-row {
+  display: grid;
+  grid-template-columns: 130px 170px minmax(0, 1fr);
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+@media (max-width: 720px) {
+  .funnel-row {
+    grid-template-columns: minmax(0, 1fr) 36px;
+  }
+  .funnel-row .bar {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+  .activity-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
