@@ -4,12 +4,11 @@ There are two separate steps. Only the first is needed to put the platform on th
 
 ## Current state
 
-- The `10xbr.com` zone exists in the Cloudflare account and is **pending**: Cloudflare is waiting for the nameservers to change.
-- The Worker `tenxbr` is deployed and already attached to `10xbr.com` and `www.10xbr.com` as custom domains. Both start serving, with certificates, once the zone is active.
-- Until then the platform is live at `https://tenxbr.amauri.workers.dev`.
-- The domain's current nameservers (`ns1.capahosting.com`, `ns2.capahosting.com`) do not answer queries, so there are no existing website or email records to carry over.
+- Step 1 is done. The `10xbr.com` zone is active on Cloudflare and the platform is served at `https://10xbr.com` and `https://www.10xbr.com` (checked 13 November 2026).
+- The Worker `tenxbr` is attached to both names as custom domains. `https://tenxbr.amauri.workers.dev` still serves the same Worker.
+- Step 2 and email below are still open.
 
-## Step 1: point the nameservers at Cloudflare
+## Step 1: point the nameservers at Cloudflare (done)
 
 This has to be done in the Squarespace account, which owns the registration.
 
