@@ -2,8 +2,11 @@ import { ArrowRight, Check, FileText, Lock, Pencil, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import {
-  FIELD_GROUPS,
-  FIELDS,
+  MONTH_NAMES,
+  asOfNow,
+  cleanStage2,
+  fieldsFor,
+  groupsFor,
   KINDS,
   LAST_STAGE,
   STAGE2_RATING,
@@ -345,11 +348,18 @@ function FormSection({ n, title, hint, children }: { n: number; title: string; h
 
 function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
   const { t, tl } = useSession();
-  const fields = FIELDS[c.kind];
   const [company, setCompany] = useState(c.company_name);
   const [location, setLocation] = useState(c.location);
   const [industry, setIndustry] = useState(c.industry);
-  const [a, setA] = useState<Stage2Answers>(c.s2_answers ?? {});
+  const [a, setA] = useState<Stage2Answers>(() => {
+    const asOf = asOfNow();
+    const saved = { ...(c.s2_answers ?? {}) };
+    // A year-to-date figure saved in an earlier month no longer covers the same months.
+    if (saved.as_of !== asOf) delete saved.rev_ytd;
+    return { ...saved, as_of: asOf };
+  });
+  const fields = fieldsFor(c.kind, a);
+  const thisYear = Number(String(a.as_of).slice(0, 4));
   const { busy, error, run } = useAction();
 
   const set = (id: string, v: number | string | undefined) =>
@@ -368,7 +378,7 @@ function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
       onSubmit={(e) => {
         e.preventDefault();
         run(async () => {
-          await api.put(`/cases/${c.id}/stage2`, { company_name: company, location, industry, answers: a });
+          await api.put(`/cases/${c.id}/stage2`, { company_name: company, location, industry, answers: cleanStage2(c.kind, a) });
           await onSaved();
         });
       }}
@@ -393,12 +403,45 @@ function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
             <input className="input" name="location" required maxLength={120} placeholder={c.kind === 'us' ? 'Orlando, FL' : 'Curitiba, PR'} value={location} onChange={(e) => setLocation(e.target.value)} />
           </Field>
         </div>
+        <Field
+          label={c.kind === 'us' ? t('When did the business start?', 'Quando o negócio começou?') : t('When did the company start?', 'Quando a empresa começou?')}
+          help={t('Month and year it first operated. We only ask about the years since then.', 'Mês e ano em que começou a operar. Só perguntamos sobre os anos desde então.')}
+        >
+          <div className="row" style={{ '--gap': '10px', maxWidth: 380 } as React.CSSProperties}>
+            <select className="select grow" name="started_month" required value={a.started_month ?? ''} onChange={(e) => set('started_month', e.target.value ? Number(e.target.value) : undefined)}>
+              <option value="">{t('Month', 'Mês')}</option>
+              {MONTH_NAMES.map((m, i) => (
+                <option key={i} value={i + 1}>
+                  {tl(m).replace(/^./, (ch) => ch.toUpperCase())}
+                </option>
+              ))}
+            </select>
+            <input
+              className="input"
+              name="started_year"
+              required
+              inputMode="numeric"
+              maxLength={4}
+              placeholder={t('Year', 'Ano')}
+              style={{ width: 120 }}
+              value={a.started_year ?? ''}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+                set('started_year', digits ? Number(digits) : undefined);
+              }}
+            />
+          </div>
+          {typeof a.started_year === 'number' && a.started_year >= 1000 && typeof a.started_month === 'number' && fields.every((f) => !f.id.startsWith('rev_')) && (
+            <span className="error">{t(`Enter a date up to this month, ${thisYear}.`, `Informe uma data até este mês de ${thisYear}.`)}</span>
+          )}
+        </Field>
       </FormSection>
-      {FIELD_GROUPS[c.kind].map((g, i) => (
+      {groupsFor(c.kind, a).map((g, i) => (
         <FormSection key={g.title.en} n={i + 2} title={tl(g.title)} hint={tl(g.hint)}>
           <div className={`fields cols-${g.cols}`}>
             {g.fields.map((id) => {
-              const f = fields.find((x) => x.id === id)!;
+              const f = fields.find((x) => x.id === id);
+              if (!f) return null;
               return (
                 <div key={f.id} className={f.kind === 'choice' ? 'wide' : undefined}>
                   <Field label={tl(f.short ?? f.label)} help={tl(f.help)}>

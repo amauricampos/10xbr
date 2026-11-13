@@ -16,7 +16,7 @@ Both tracks use the same four stages. Each one opens only when the one before is
 | Stage | What the owner does | Time | Gate |
 | --- | --- | --- | --- |
 | 1. L-1 compliance | Nine single-tap questions, one per L-1A requirement ([docs/l1-requirements.md](docs/l1-requirements.md)), then name and email before the result is shown | 2 min | Compliant, Gaps to fix or Not compliant. Scored automatically. Answers are final. Not compliant stops the record |
-| 2. Business health | About ten numbers: revenue for three years, earnings, staff, price or funds | 5 min | Healthy, Watch or Weak. Scored automatically. Weak stops the record |
+| 2. Business health | When the business started, then about ten numbers in named sections: revenue for each calendar year since then (up to three, including the current year to date), earnings, staff, price or funds | 5 min | Healthy, Watch or Weak. Scored automatically. Weak stops the record |
 | 3. Core documents | Signs the NDA in the app, then uploads five documents or links a shared folder | 1 to 3 days | AI reads each file and compares it with the answers. The team approves |
 | 4. Owners and verification | Lists the owners, answers four disclosures, uploads the remaining documents | 1 to 2 weeks | The team approves. The record enters the catalog |
 

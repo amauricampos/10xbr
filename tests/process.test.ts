@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DOCS, docsFor } from '../shared/documents';
-import { FIELD_GROUPS, FIELDS, QUESTIONS, scoreStage1, scoreStage2, stage1Complete, stage2Complete, stage4Complete, type Kind, type Stage1Answers } from '../shared/process';
+import { QUESTIONS, fieldsFor, groupsFor, planFor, scoreStage1, scoreStage2, stage1Complete, stage2Complete, stage4Complete, type Kind, type Stage1Answers } from '../shared/process';
 
 const best = (kind: Kind): Stage1Answers => Object.fromEntries(QUESTIONS[kind].map((q) => [q.id, q.options.find((o) => o.level === 'pass')!.value]));
 
@@ -79,8 +79,10 @@ describe('stage 1: candidate', () => {
   });
 });
 
-const usGood = { price: 800_000, rev_y1: 1_300_000, rev_y2: 1_400_000, rev_y3: 1_500_000, sde: 280_000, employees: 8, lease_years: 5, owner_hours: 20, top_customer_pct: 10, debt: 100_000, seller_note: 'yes20', sale_reason: 'retirement' };
-const brGood = { rev_y1: 3_000_000, rev_y2: 3_600_000, rev_y3: 4_200_000, profit: 600_000, cash: 1_500_000, debt: 300_000, invest_usd: 900_000, tax_status: 'good' };
+const started = { as_of: '2026-11', started_year: 2015, started_month: 3 };
+// Year to date covers January to October, so 1.25M scales to 1.5M a year.
+const usGood = { ...started, price: 800_000, rev_2024: 1_300_000, rev_2025: 1_400_000, rev_ytd: 1_250_000, sde: 280_000, employees: 8, lease_years: 5, owner_hours: 20, top_customer_pct: 10, debt: 100_000, seller_note: 'yes20', sale_reason: 'retirement' };
+const brGood = { ...started, rev_2024: 3_000_000, rev_2025: 3_600_000, rev_ytd: 3_500_000, profit: 600_000, cash: 1_500_000, debt: 300_000, invest_usd: 900_000, tax_status: 'good' };
 
 describe('stage 2: U.S. business health', () => {
   it('rates a growing, staffed, fairly priced business Healthy', () => {
@@ -121,15 +123,15 @@ describe('stage 2: candidate company health', () => {
   });
 
   it('sizes what the company can send after a reserve, its debt and a weaker real', () => {
-    // 4.2M revenue − 0.6M profit = 3.6M costs, so a 3-month reserve is 900k. (1.5M − 900k − 300k) ÷ (5.5 × 1.15)
-    expect(scoreStage2('br', brGood).metrics.find((m) => m.id === 'capacity')).toMatchObject({ value: '$47,431', grade: 'ok' });
+    // 2025: 3.6M revenue − 0.6M profit = 3.0M costs, so a 3-month reserve is 750k. (1.5M − 750k − 300k) ÷ (5.5 × 1.15)
+    expect(scoreStage2('br', brGood).metrics.find((m) => m.id === 'capacity')).toMatchObject({ value: '$71,146', grade: 'ok' });
     const funded = scoreStage2('br', { ...brGood, cash: 8_000_000 });
     expect(funded.metrics.find((m) => m.id === 'capacity')?.grade).toBe('good');
     expect(funded).toMatchObject({ rating: 'healthy', score: 100 });
   });
 
   it('flags two straight revenue declines as weak', () => {
-    const r = scoreStage2('br', { ...brGood, rev_y1: 5_000_000, rev_y2: 4_600_000, rev_y3: 4_200_000 });
+    const r = scoreStage2('br', { ...brGood, rev_2024: 5_000_000, rev_2025: 4_600_000, rev_ytd: 3_500_000 });
     expect(r.metrics.find((m) => m.id === 'rev_trend')?.grade).toBe('weak');
     expect(r.rating).toBe('watch');
   });
@@ -140,10 +142,58 @@ describe('stage 2: candidate company health', () => {
   });
 });
 
+describe('stage 2: periods', () => {
+  const ids = (a: Record<string, number | string>) => planFor(a)?.periods.map((p) => `${p.id}:${p.months}`);
+
+  it('asks for the two last full years and the year to date', () => {
+    expect(ids(started)).toEqual(['rev_2024:12', 'rev_2025:12', 'rev_ytd:10']);
+    expect(planFor(started)?.periods.map((p) => p.label.en)).toEqual(['2024', '2025', '2026, January to October']);
+    expect(planFor(started)?.earnings.id).toBe('rev_2025');
+  });
+
+  it('skips periods before the business started', () => {
+    expect(ids({ as_of: '2026-11', started_year: 2025, started_month: 5 })).toEqual(['rev_2025:8', 'rev_ytd:10']);
+    expect(planFor({ as_of: '2026-11', started_year: 2025, started_month: 5 })?.periods[0].label.en).toBe('2025, from May');
+    // Two months of 2025 are too few to report; earnings then come from the year to date.
+    const late = { as_of: '2026-11', started_year: 2025, started_month: 11 };
+    expect(ids(late)).toEqual(['rev_ytd:10']);
+    expect(planFor(late)?.earnings.id).toBe('rev_ytd');
+    expect(ids({ as_of: '2026-11', started_year: 2026, started_month: 4 })).toEqual(['rev_ytd:7']);
+    expect(planFor({ as_of: '2026-11', started_year: 2026, started_month: 4 })?.periods[0].label.pt).toBe('2026, abril a outubro');
+    expect(ids({ as_of: '2026-11', started_year: 2026, started_month: 11 })).toEqual(['rev_ytd:1']);
+  });
+
+  it('asks for three full years early in the year', () => {
+    expect(ids({ as_of: '2027-02', started_year: 2015, started_month: 3 })).toEqual(['rev_2024:12', 'rev_2025:12', 'rev_2026:12']);
+  });
+
+  it('rejects a start in the future or a missing date', () => {
+    expect(planFor({ as_of: '2026-11', started_year: 2026, started_month: 12 })).toBeNull();
+    expect(planFor({ as_of: '2026-11', started_year: 2027, started_month: 1 })).toBeNull();
+    expect(planFor({ as_of: '2026-11' })).toBeNull();
+    expect(stage2Complete('us', { ...usGood, as_of: 'soon' })).toBe(false);
+  });
+
+  it('scales a partial year before comparing it', () => {
+    // Opened May 2025: 800k in 8 months is 1.2M a year; 1.25M in 10 months is 1.5M a year.
+    const { rev_2024: _unused, ...rest } = usGood;
+    const r = scoreStage2('us', { ...rest, started_year: 2025, started_month: 5, rev_2025: 800_000, sde: 160_000 });
+    expect(r.metrics.find((m) => m.id === 'rev_trend')?.value).toBe('+25.0%/yr');
+    expect(r.metrics.find((m) => m.id === 'margin')?.value).toBe('20.0%');
+    expect(r.metrics.find((m) => m.id === 'multiple')?.value).toBe('3.3×');
+  });
+
+  it('gives a business with one period no trend', () => {
+    const { rev_2024: _a, rev_2025: _b, ...rest } = usGood;
+    const r = scoreStage2('us', { ...rest, started_year: 2026, started_month: 2 });
+    expect(r.metrics.find((m) => m.id === 'rev_trend')).toMatchObject({ value: 'n/a', grade: 'ok' });
+  });
+});
+
 describe('stage 2: form layout', () => {
   it.each(['us', 'br'] as const)('places every %s field in exactly one group', (kind) => {
-    const grouped = FIELD_GROUPS[kind].flatMap((g) => g.fields);
-    expect([...grouped].sort()).toEqual(FIELDS[kind].map((f) => f.id).sort());
+    const grouped = groupsFor(kind, started).flatMap((g) => g.fields);
+    expect([...grouped].sort()).toEqual(fieldsFor(kind, started).map((f) => f.id).sort());
   });
 });
 
@@ -157,7 +207,7 @@ describe('stage 2: input checks', () => {
   });
 
   it('rejects negative, out-of-range and unknown values', () => {
-    expect(stage2Complete('us', { ...usGood, rev_y1: -5 })).toBe(false);
+    expect(stage2Complete('us', { ...usGood, rev_2024: -5 })).toBe(false);
     expect(stage2Complete('us', { ...usGood, top_customer_pct: 140 })).toBe(false);
     expect(stage2Complete('us', { ...usGood, sale_reason: 'bored' })).toBe(false);
     expect(stage2Complete('us', { ...usGood, sde: -5 })).toBe(true);

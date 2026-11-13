@@ -672,26 +672,9 @@ export type FieldDef = {
   allowNegative?: boolean;
 };
 
-const REV_SHORT: L[] = [
-  { en: 'Two years ago', pt: 'Há dois anos' },
-  { en: 'Last year', pt: 'Ano passado' },
-  { en: 'Most recent 12 months', pt: 'Últimos 12 meses' },
-];
-
+/** Fields that do not depend on a period. Revenue and earnings are added by `fieldsFor`. */
 const US_FIELDS: FieldDef[] = [
   { id: 'price', kind: 'money', unit: 'USD', label: { en: 'Asking price', pt: 'Preço pedido' } },
-  { id: 'rev_y1', kind: 'money', unit: 'USD', label: { en: 'Revenue, two years ago', pt: 'Faturamento, há dois anos' }, short: REV_SHORT[0] },
-  { id: 'rev_y2', kind: 'money', unit: 'USD', label: { en: 'Revenue, last year', pt: 'Faturamento, ano passado' }, short: REV_SHORT[1] },
-  { id: 'rev_y3', kind: 'money', unit: 'USD', label: { en: 'Revenue, most recent 12 months', pt: 'Faturamento, últimos 12 meses' }, short: REV_SHORT[2] },
-  {
-    id: 'sde',
-    kind: 'money',
-    unit: 'USD',
-    allowNegative: true,
-    label: { en: 'Owner’s earnings (SDE), most recent 12 months', pt: 'Lucro do proprietário (SDE), últimos 12 meses' },
-    short: { en: 'Owner’s earnings (SDE)', pt: 'Lucro do proprietário (SDE)' },
-    help: { en: 'Profit plus the owner’s own pay and perks. Use a negative number for a loss.', pt: 'Lucro mais a remuneração e os benefícios do dono. Use número negativo para prejuízo.' },
-  },
   { id: 'employees', kind: 'number', unit: 'people', max: 100_000, label: { en: 'Employees on payroll (W-2)', pt: 'Funcionários na folha (W-2)' } },
   {
     id: 'lease_years',
@@ -736,18 +719,6 @@ const US_FIELDS: FieldDef[] = [
 ];
 
 const BR_FIELDS: FieldDef[] = [
-  { id: 'rev_y1', kind: 'money', unit: 'BRL', label: { en: 'Revenue, two years ago', pt: 'Faturamento, há dois anos' }, short: REV_SHORT[0] },
-  { id: 'rev_y2', kind: 'money', unit: 'BRL', label: { en: 'Revenue, last year', pt: 'Faturamento, ano passado' }, short: REV_SHORT[1] },
-  { id: 'rev_y3', kind: 'money', unit: 'BRL', label: { en: 'Revenue, most recent 12 months', pt: 'Faturamento, últimos 12 meses' }, short: REV_SHORT[2] },
-  {
-    id: 'profit',
-    kind: 'money',
-    unit: 'BRL',
-    allowNegative: true,
-    label: { en: 'Net profit, most recent 12 months', pt: 'Lucro líquido, últimos 12 meses' },
-    short: { en: 'Net profit', pt: 'Lucro líquido' },
-    help: { en: 'Use a negative number for a loss.', pt: 'Use número negativo para prejuízo.' },
-  },
   { id: 'cash', kind: 'money', unit: 'BRL', label: { en: 'Cash and liquid investments today', pt: 'Caixa e aplicações líquidas hoje' }, short: { en: 'Cash and liquid investments', pt: 'Caixa e aplicações líquidas' } },
   { id: 'debt', kind: 'money', unit: 'BRL', label: { en: 'Total debt today', pt: 'Dívida total hoje' }, short: { en: 'Total debt', pt: 'Dívida total' }, help: { en: 'Enter 0 if none.', pt: 'Digite 0 se não houver.' } },
   {
@@ -770,48 +741,7 @@ const BR_FIELDS: FieldDef[] = [
   },
 ];
 
-export const FIELDS: Record<Kind, FieldDef[]> = { us: US_FIELDS, br: BR_FIELDS };
-
-/** How the form lays the fields out: related numbers together, in the order an owner thinks of them. */
-export type FieldGroup = { title: L; hint?: L; fields: string[]; cols: 2 | 3 };
-export const FIELD_GROUPS: Record<Kind, FieldGroup[]> = {
-  us: [
-    {
-      title: { en: 'Revenue', pt: 'Faturamento' },
-      hint: { en: 'Total sales for each period.', pt: 'Total de vendas em cada período.' },
-      fields: ['rev_y1', 'rev_y2', 'rev_y3'],
-      cols: 3,
-    },
-    {
-      title: { en: 'Earnings and debt', pt: 'Lucro e dívida' },
-      hint: { en: 'For the most recent 12 months.', pt: 'Nos últimos 12 meses.' },
-      fields: ['sde', 'debt'],
-      cols: 2,
-    },
-    {
-      title: { en: 'Team and operations', pt: 'Equipe e operação' },
-      fields: ['employees', 'owner_hours', 'top_customer_pct', 'lease_years'],
-      cols: 2,
-    },
-    { title: { en: 'The sale', pt: 'A venda' }, fields: ['price', 'seller_note', 'sale_reason'], cols: 2 },
-  ],
-  br: [
-    {
-      title: { en: 'Revenue', pt: 'Faturamento' },
-      hint: { en: 'Total sales for each period, in reais.', pt: 'Total de vendas em cada período, em reais.' },
-      fields: ['rev_y1', 'rev_y2', 'rev_y3'],
-      cols: 3,
-    },
-    {
-      title: { en: 'Profit, cash and debt', pt: 'Lucro, caixa e dívida' },
-      hint: { en: 'Profit for the most recent 12 months. Cash and debt as of today.', pt: 'Lucro dos últimos 12 meses. Caixa e dívida na data de hoje.' },
-      fields: ['profit', 'cash', 'debt'],
-      cols: 3,
-    },
-    { title: { en: 'Taxes', pt: 'Impostos' }, fields: ['tax_status'], cols: 2 },
-    { title: { en: 'Your investment', pt: 'Seu investimento' }, fields: ['invest_usd'], cols: 2 },
-  ],
-};
+const BASE_FIELDS: Record<Kind, FieldDef[]> = { us: US_FIELDS, br: BR_FIELDS };
 
 export type Stage2Answers = Record<string, number | string>;
 export type Grade = 'good' | 'ok' | 'weak';
@@ -835,8 +765,137 @@ export const STAGE2_RATING: Record<Stage2Rating, L> = {
 const pct = (n: number, signed = false) => `${signed && n > 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
 const usd = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('en-US')}`;
 
+/* Reporting periods: named calendar years, and only those the business existed for. */
+
+const MONTHS: L[] = [
+  { en: 'January', pt: 'janeiro' },
+  { en: 'February', pt: 'fevereiro' },
+  { en: 'March', pt: 'março' },
+  { en: 'April', pt: 'abril' },
+  { en: 'May', pt: 'maio' },
+  { en: 'June', pt: 'junho' },
+  { en: 'July', pt: 'julho' },
+  { en: 'August', pt: 'agosto' },
+  { en: 'September', pt: 'setembro' },
+  { en: 'October', pt: 'outubro' },
+  { en: 'November', pt: 'novembro' },
+  { en: 'December', pt: 'dezembro' },
+];
+export const MONTH_NAMES = MONTHS;
+
+/** `months` is how long the business operated inside the period; partial periods are annualized for scoring. */
+export type Period = { id: string; months: number; label: L };
+export type Stage2Plan = { periods: Period[]; earnings: Period };
+
+/** The month the form was filled in, as YYYY-MM. Saved with the answers so the same periods are scored later. */
+export const asOfNow = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+const MIN_PERIOD_MONTHS = 3;
+const MIN_EARNINGS_MONTHS = 6;
+
+/**
+ * Which periods to ask about, from when the business started and when the form is filled in.
+ * Up to three: the two last full years and the current year to date, or three full years early in a year.
+ * Periods before the start, or with under three months of operation, are left out.
+ */
+export function planFor(a: Stage2Answers): Stage2Plan | null {
+  const m = typeof a.as_of === 'string' ? /^(\d{4})-(0[1-9]|1[0-2])$/.exec(a.as_of) : null;
+  const sy = a.started_year;
+  const sm = a.started_month;
+  if (!m || typeof sy !== 'number' || typeof sm !== 'number' || !Number.isInteger(sy) || !Number.isInteger(sm)) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  if (sy < 1800 || sm < 1 || sm > 12 || sy > year || (sy === year && sm > month)) return null;
+
+  const done = month - 1; // complete months of the current year
+  const fullYear = (y: number): Period => ({
+    id: `rev_${y}`,
+    months: y > sy ? 12 : y === sy ? 13 - sm : 0,
+    label: y === sy && sm > 1 ? { en: `${y}, from ${MONTHS[sm - 1].en}`, pt: `${y}, a partir de ${MONTHS[sm - 1].pt}` } : { en: `${y}`, pt: `${y}` },
+  });
+  const toDate = (): Period => {
+    const from = year === sy ? sm : 1;
+    const last = Math.max(done, from);
+    const span = (l: 'en' | 'pt') => (from === last ? MONTHS[from - 1][l] : `${MONTHS[from - 1][l]} ${l === 'en' ? 'to' : 'a'} ${MONTHS[last - 1][l]}`);
+    return { id: 'rev_ytd', months: Math.max(done - from + 1, 0), label: { en: `${year}, ${span('en')}`, pt: `${year}, ${span('pt')}` } };
+  };
+  const candidates = done >= MIN_PERIOD_MONTHS ? [fullYear(year - 2), fullYear(year - 1), toDate()] : [fullYear(year - 3), fullYear(year - 2), fullYear(year - 1)];
+  let periods = candidates.filter((p) => p.months >= MIN_PERIOD_MONTHS);
+  // A business only weeks old still reports what it has.
+  if (!periods.length) periods = [{ ...toDate(), months: Math.max(toDate().months, 1) }];
+
+  const earnings = [...periods].reverse().find((p) => p.id !== 'rev_ytd' && p.months >= MIN_EARNINGS_MONTHS) ?? periods[periods.length - 1];
+  return { periods, earnings };
+}
+
+const EARNINGS: Record<Kind, { id: string; label: L; help: L }> = {
+  us: {
+    id: 'sde',
+    label: { en: 'Owner’s earnings (SDE)', pt: 'Lucro do proprietário (SDE)' },
+    help: { en: 'Profit plus the owner’s own pay and perks. Use a negative number for a loss.', pt: 'Lucro mais a remuneração e os benefícios do dono. Use número negativo para prejuízo.' },
+  },
+  br: { id: 'profit', label: { en: 'Net profit', pt: 'Lucro líquido' }, help: { en: 'Use a negative number for a loss.', pt: 'Use número negativo para prejuízo.' } },
+};
+
+/** The fields to ask, given when the business started. Without a valid start only the undated fields are returned. */
+export function fieldsFor(kind: Kind, a: Stage2Answers): FieldDef[] {
+  const plan = planFor(a);
+  const unit = kind === 'us' ? 'USD' : 'BRL';
+  if (!plan) return BASE_FIELDS[kind];
+  const e = EARNINGS[kind];
+  return [
+    ...plan.periods.map((p): FieldDef => ({ id: p.id, kind: 'money', unit, label: { en: `Revenue ${p.label.en}`, pt: `Faturamento ${p.label.pt}` }, short: p.label })),
+    {
+      id: e.id,
+      kind: 'money',
+      unit,
+      allowNegative: true,
+      label: { en: `${e.label.en}, ${plan.earnings.label.en}`, pt: `${e.label.pt}, ${plan.earnings.label.pt}` },
+      help: e.help,
+    },
+    ...BASE_FIELDS[kind],
+  ];
+}
+
+/** How the form lays the fields out: related numbers together, in the order an owner thinks of them. */
+export type FieldGroup = { title: L; hint?: L; fields: string[]; cols: 2 | 3 };
+export function groupsFor(kind: Kind, a: Stage2Answers): FieldGroup[] {
+  const plan = planFor(a);
+  const revenue: FieldGroup = {
+    title: { en: 'Revenue', pt: 'Faturamento' },
+    hint: plan
+      ? kind === 'us'
+        ? { en: 'Total sales in each period.', pt: 'Total de vendas em cada período.' }
+        : { en: 'Total sales in each period, in reais.', pt: 'Total de vendas em cada período, em reais.' }
+      : { en: 'Enter when the business started above and the right years appear here.', pt: 'Informe acima quando o negócio começou e os anos certos aparecem aqui.' },
+    fields: plan ? plan.periods.map((p) => p.id) : [],
+    cols: plan && plan.periods.length === 3 ? 3 : 2,
+  };
+  if (kind === 'us') {
+    return [
+      revenue,
+      { title: { en: 'Earnings and debt', pt: 'Lucro e dívida' }, fields: ['sde', 'debt'], cols: 2 },
+      { title: { en: 'Team and operations', pt: 'Equipe e operação' }, fields: ['employees', 'owner_hours', 'top_customer_pct', 'lease_years'], cols: 2 },
+      { title: { en: 'The sale', pt: 'A venda' }, fields: ['price', 'seller_note', 'sale_reason'], cols: 2 },
+    ];
+  }
+  return [
+    revenue,
+    { title: { en: 'Profit, cash and debt', pt: 'Lucro, caixa e dívida' }, fields: ['profit', 'cash', 'debt'], cols: 3 },
+    { title: { en: 'Taxes', pt: 'Impostos' }, fields: ['tax_status'], cols: 2 },
+    { title: { en: 'Your investment', pt: 'Seu investimento' }, fields: ['invest_usd'], cols: 2 },
+  ];
+}
+
+/** Keeps only the answers the current plan asks for, dropping anything stale or unknown. */
+export function cleanStage2(kind: Kind, a: Stage2Answers): Stage2Answers {
+  const keep = ['as_of', 'started_year', 'started_month', ...fieldsFor(kind, a).map((f) => f.id)];
+  return Object.fromEntries(keep.filter((k) => a[k] !== undefined).map((k) => [k, a[k]]));
+}
+
 export function stage2Complete(kind: Kind, a: Stage2Answers): boolean {
-  return FIELDS[kind].every((f) => {
+  if (!planFor(a)) return false;
+  return fieldsFor(kind, a).every((f) => {
     const v = a[f.id];
     if (f.kind === 'choice') return f.options!.some((o) => o.value === v);
     return typeof v === 'number' && Number.isFinite(v) && (f.allowNegative || v >= 0) && (f.max === undefined || v <= f.max);
@@ -845,12 +904,38 @@ export function stage2Complete(kind: Kind, a: Stage2Answers): boolean {
 
 type Add = (id: string, label: L, value: string, grade: Grade, notes: Record<Grade, L>) => void;
 
-/** Compound annual growth over two years; two straight declines are weak. */
-function revenueTrend(add: Add, y1: number, y2: number, y3: number) {
-  const growth = y1 > 0 && y3 > 0 ? Math.sqrt(y3 / y1) - 1 : y3 > y1 ? 1 : -1;
-  const twoDeclines = y2 < y1 && y3 < y2;
+type Basis = {
+  /** Revenue per period, oldest first, scaled to a full year. */
+  revenue: number[];
+  /** Revenue and months of the period the earnings figure covers. */
+  earningsRevenue: number;
+  earningsMonths: number;
+};
+
+function basisFor(a: Stage2Answers): Basis {
+  const plan = planFor(a)!;
+  const n = a as Record<string, number>;
+  return {
+    revenue: plan.periods.map((p) => (n[p.id] * 12) / p.months),
+    earningsRevenue: n[plan.earnings.id],
+    earningsMonths: plan.earnings.months,
+  };
+}
+
+/** Compound annual growth across the periods reported; two straight declines are weak. */
+function revenueTrend(add: Add, rev: number[]) {
+  const label = { en: 'Revenue trend', pt: 'Tendência de faturamento' };
+  if (rev.length < 2) {
+    const note = { en: 'Too new to show a trend.', pt: 'Recente demais para mostrar tendência.' };
+    add('rev_trend', label, 'n/a', 'ok', { good: note, ok: note, weak: note });
+    return;
+  }
+  const first = rev[0];
+  const last = rev[rev.length - 1];
+  const growth = first > 0 && last > 0 ? Math.pow(last / first, 1 / (rev.length - 1)) - 1 : last > first ? 1 : -1;
+  const twoDeclines = rev.length === 3 && rev[1] < rev[0] && rev[2] < rev[1];
   const grade: Grade = twoDeclines || growth < -0.05 ? 'weak' : growth >= 0.05 ? 'good' : 'ok';
-  add('rev_trend', { en: 'Revenue trend', pt: 'Tendência de faturamento' }, `${pct(growth, true)}/yr`, grade, {
+  add('rev_trend', label, `${pct(growth, true)}/yr`, grade, {
     good: { en: 'Growing year over year.', pt: 'Crescendo ano a ano.' },
     ok: { en: 'Roughly flat.', pt: 'Praticamente estável.' },
     weak: twoDeclines
@@ -859,14 +944,17 @@ function revenueTrend(add: Add, y1: number, y2: number, y3: number) {
   });
 }
 
-function scoreUs(a: Record<string, number>, reason: string, sellerNote: string, add: Add) {
-  const { price, rev_y1, rev_y2, rev_y3, sde, employees, lease_years, owner_hours, top_customer_pct, debt } = a;
+function scoreUs(a: Record<string, number>, basis: Basis, reason: string, sellerNote: string, add: Add) {
+  const { price, employees, lease_years, owner_hours, top_customer_pct, debt } = a;
+  const periodRevenue = basis.earningsRevenue;
+  // Earnings for a partial period are scaled to a full year before they are compared with price, salary and debt.
+  const sde = (a.sde * 12) / basis.earningsMonths;
 
-  revenueTrend(add, rev_y1, rev_y2, rev_y3);
+  revenueTrend(add, basis.revenue);
   {
-    const margin = rev_y3 > 0 ? sde / rev_y3 : -1;
+    const margin = periodRevenue > 0 ? a.sde / periodRevenue : -1;
     const grade: Grade = margin >= 0.15 ? 'good' : margin >= 0.08 ? 'ok' : 'weak';
-    add('margin', { en: 'Earnings margin', pt: 'Margem de lucro' }, rev_y3 > 0 ? pct(margin) : 'n/a', grade, {
+    add('margin', { en: 'Earnings margin', pt: 'Margem de lucro' }, periodRevenue > 0 ? pct(margin) : 'n/a', grade, {
       good: { en: 'Solid earnings for the revenue.', pt: 'Lucro sólido para o faturamento.' },
       ok: { en: 'Thin but positive.', pt: 'Baixa, mas positiva.' },
       weak: { en: 'Little or no earnings.', pt: 'Pouco ou nenhum lucro.' },
@@ -963,14 +1051,17 @@ function scoreUs(a: Record<string, number>, reason: string, sellerNote: string, 
   }
 }
 
-function scoreBr(a: Record<string, number>, tax: string, add: Add) {
-  const { rev_y1, rev_y2, rev_y3, profit, cash, debt, invest_usd } = a;
+function scoreBr(a: Record<string, number>, basis: Basis, tax: string, add: Add) {
+  const { cash, debt, invest_usd } = a;
+  const periodRevenue = basis.earningsRevenue;
+  const monthlyCosts = Math.max(periodRevenue - a.profit, 0) / basis.earningsMonths;
+  const profit = (a.profit * 12) / basis.earningsMonths;
 
-  revenueTrend(add, rev_y1, rev_y2, rev_y3);
+  revenueTrend(add, basis.revenue);
   {
-    const margin = rev_y3 > 0 ? profit / rev_y3 : -1;
+    const margin = periodRevenue > 0 ? a.profit / periodRevenue : -1;
     const grade: Grade = margin >= 0.1 ? 'good' : margin >= 0.03 ? 'ok' : 'weak';
-    add('margin', { en: 'Net margin', pt: 'Margem líquida' }, rev_y3 > 0 ? pct(margin) : 'n/a', grade, {
+    add('margin', { en: 'Net margin', pt: 'Margem líquida' }, periodRevenue > 0 ? pct(margin) : 'n/a', grade, {
       good: { en: 'Solidly profitable.', pt: 'Lucratividade sólida.' },
       ok: { en: 'Thin but positive.', pt: 'Baixa, mas positiva.' },
       weak: { en: 'Little or no profit to support an acquisition.', pt: 'Pouco ou nenhum lucro para sustentar uma aquisição.' },
@@ -978,7 +1069,6 @@ function scoreBr(a: Record<string, number>, tax: string, add: Add) {
   }
   {
     // Months of operating costs covered by cash.
-    const monthlyCosts = Math.max(rev_y3 - profit, 0) / 12;
     const months = monthlyCosts > 0 ? cash / monthlyCosts : cash > 0 ? 99 : 0;
     const grade: Grade = months >= 3 ? 'good' : months >= 1 ? 'ok' : 'weak';
     add('runway', { en: 'Cash runway', pt: 'Fôlego de caixa' }, `${months >= 12 ? '12+' : months.toFixed(1)} mo`, grade, {
@@ -1007,7 +1097,7 @@ function scoreBr(a: Record<string, number>, tax: string, add: Add) {
   }
   {
     // What the company can send and still pay its own bills, at a stressed exchange rate.
-    const reserve = (Math.max(rev_y3 - profit, 0) / 12) * PARAMS.brReserveMonths;
+    const reserve = monthlyCosts * PARAMS.brReserveMonths;
     const capacity = Math.max(cash - reserve - Math.max(debt, 0), 0) / (PARAMS.brlPerUsd * (1 + PARAMS.fxStressPct));
     const grade: Grade = capacity >= invest_usd && invest_usd > 0 ? 'good' : capacity > 0 ? 'ok' : 'weak';
     add('capacity', { en: 'Company can fund', pt: 'A empresa consegue aportar' }, usd(capacity), grade, {
@@ -1037,8 +1127,9 @@ export function scoreStage2(kind: Kind, a: Stage2Answers): Stage2Result {
   const metrics: Metric[] = [];
   const add: Add = (id, label, value, grade, notes) => metrics.push({ id, label, value, grade, note: notes[grade] });
   const nums = a as Record<string, number>;
-  if (kind === 'us') scoreUs(nums, String(a.sale_reason), String(a.seller_note), add);
-  else scoreBr(nums, String(a.tax_status), add);
+  const basis = basisFor(a);
+  if (kind === 'us') scoreUs(nums, basis, String(a.sale_reason), String(a.seller_note), add);
+  else scoreBr(nums, basis, String(a.tax_status), add);
 
   const points = metrics.reduce((s, x) => s + (x.grade === 'good' ? 2 : x.grade === 'ok' ? 1 : 0), 0);
   const ratio = points / (metrics.length * 2);

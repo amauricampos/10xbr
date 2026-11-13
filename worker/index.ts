@@ -23,6 +23,7 @@ import { mailReady, noticeEmail, scorecardEmail, sendMail } from './scorecard';
 import {
   DISCLOSURES,
   LAST_STAGE,
+  cleanStage2,
   scoreStage1,
   scoreStage2,
   stage1Complete,
@@ -627,13 +628,18 @@ app.put('/cases/:id/stage2', async (c) => {
       answers: z.record(z.string(), z.union([z.number().finite().min(-1e13).max(1e13), z.string().max(40)])),
     })
     .parse(await c.req.json());
-  if (!stage2Complete(row.kind, body.answers as Stage2Answers)) throw new HttpError(400, 'incomplete');
-  const result = scoreStage2(row.kind, body.answers as Stage2Answers);
+  const answers = cleanStage2(row.kind, body.answers as Stage2Answers);
+  // The periods asked depend on the month the form was filled in, so that month must be the current one.
+  const [y, m] = String(answers.as_of ?? '').split('-').map(Number);
+  const today = new Date();
+  if (Math.abs((today.getUTCFullYear() - y) * 12 + (today.getUTCMonth() + 1 - m)) > 1) throw new HttpError(400, 'stale', 'Reload the page and try again.');
+  if (!stage2Complete(row.kind, answers)) throw new HttpError(400, 'incomplete');
+  const result = scoreStage2(row.kind, answers);
   const stage = result.passed ? Math.max(row.stage, 3) : 2;
   await c.env.DB.prepare(
     'UPDATE cases SET company_name = ?, location = ?, industry = ?, s2_answers = ?, s2_result = ?, stage = ?, status = ?, updated_at = ? WHERE id = ?',
   )
-    .bind(body.company_name, body.location, body.industry, JSON.stringify(body.answers), JSON.stringify(result), stage, result.passed ? 'active' : 'stopped', now(), row.id)
+    .bind(body.company_name, body.location, body.industry, JSON.stringify(answers), JSON.stringify(result), stage, result.passed ? 'active' : 'stopped', now(), row.id)
     .run();
   await audit(c, 'stage2.submitted', row.id, { rating: result.rating });
   c.executionCtx.waitUntil(runReview(c.env, row.id));
