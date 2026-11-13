@@ -25,12 +25,12 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 }
 
 function LeadDetail({ lead, reload }: { lead: Lead; reload: () => Promise<void> }) {
-  const { t, user } = useSession();
+  const { t, user, forms } = useSession();
   const [note, setNote] = useState('');
   const [sent, setSent] = useState<{ emailed: boolean; link: string } | null>(null);
   const { busy, error, run } = useAction();
-  // Answers saved before a question was added can no longer be scored.
-  const result = stage1Complete(lead.kind, lead.s1_answers) ? scoreStage1(lead.kind, lead.s1_answers) : null;
+  // The scorecard as the person saw it. Leads from before scorecards were kept are re-scored when the questions still match.
+  const result = lead.s1_result ?? (stage1Complete(lead.kind, lead.s1_answers, forms) ? scoreStage1(lead.kind, lead.s1_answers, forms) : null);
   const link = `${location.origin}/resume/${lead.id}`;
 
   return (

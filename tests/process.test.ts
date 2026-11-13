@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { DOCS, docsFor } from '../shared/documents';
-import { QUESTIONS, fieldsFor, groupsFor, planFor, scoreStage1, scoreStage2, stage1Complete, stage2Complete, stage4Complete, type Kind, type Stage1Answers } from '../shared/process';
+import * as P from '../shared/process';
+import { DEFAULT_FORMS as F, METRICS, canonicalForm, formProblem, mergeForms, planFor, type ChoiceQuestion, type Forms, type Kind, type Section, type Stage1Answers, type Stage2Answers, type Stage4Answers } from '../shared/process';
+
+// The shipped questionnaires, unless a test passes its own.
+const QUESTIONS = F.s1;
+const scoreStage1 = (k: Kind, a: Stage1Answers, forms: Forms = F) => P.scoreStage1(k, a, forms);
+const stage1Complete = (k: Kind, a: Stage1Answers, forms: Forms = F) => P.stage1Complete(k, a, forms);
+const scoreStage2 = (k: Kind, a: Stage2Answers, forms: Forms = F) => P.scoreStage2(k, a, forms);
+const stage2Complete = (k: Kind, a: Stage2Answers, forms: Forms = F) => P.stage2Complete(k, a, forms);
+const stage4Complete = (a: Stage4Answers | null, forms: Forms = F) => P.stage4Complete(a, forms);
 
 const best = (kind: Kind): Stage1Answers => Object.fromEntries(QUESTIONS[kind].map((q) => [q.id, q.options.find((o) => o.level === 'pass')!.value]));
 
@@ -191,9 +200,17 @@ describe('stage 2: periods', () => {
 });
 
 describe('stage 2: form layout', () => {
-  it.each(['us', 'br'] as const)('places every %s field in exactly one group', (kind) => {
-    const grouped = groupsFor(kind, started).flatMap((g) => g.fields);
-    expect([...grouped].sort()).toEqual(fieldsFor(kind, started).map((f) => f.id).sort());
+  it.each(['us', 'br'] as const)('asks every built-in %s question once', (kind) => {
+    const asked = P.fieldsFor(kind, started, F).map((f) => f.id);
+    const expected = [...planFor(started)!.periods.map((p) => p.id), ...P.BUILTIN_FIELDS[kind].filter((f) => f.kind !== 'revenue').map((f) => f.id)];
+    expect([...asked].sort()).toEqual(expected.sort());
+  });
+
+  it('holds back the dated questions until the start date is known', () => {
+    const sections = P.sectionsFor('us', { as_of: '2026-11' }, F);
+    expect(sections[0]).toMatchObject({ awaitsStart: true, fields: [] });
+    expect(sections.flatMap((s) => s.fields).map((f) => f.id)).not.toContain('sde');
+    expect(P.sectionsFor('us', started, F)[1].fields[0].label.en).toBe('Owner’s earnings (SDE), 2025');
   });
 });
 
@@ -240,5 +257,161 @@ describe('document checklists', () => {
     const all = docsFor(kind, 4);
     expect(all.length).toBeGreaterThan(core.length);
     expect(all.every((d) => d.kind === kind)).toBe(true);
+  });
+});
+
+describe('editable questionnaires', () => {
+  const edit = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
+
+  it('accepts the shipped forms unchanged', () => {
+    for (const key of P.FORM_KEYS) {
+      const body = canonicalForm(key, P.getForm(F, key));
+      expect(formProblem(key, body)).toBeNull();
+      expect(body).toEqual(P.getForm(F, key));
+    }
+    expect(mergeForms({})).toBe(F);
+  });
+
+  it('scores an added, a removed and a reordered L-1 question', () => {
+    const qs = edit(F.s1.us).filter((q) => q.id !== 'premises').reverse();
+    const added: ChoiceQuestion = {
+      id: 'q_new1',
+      req: { en: 'Insurance', pt: '' },
+      label: { en: 'Is the business insured?', pt: '' },
+      options: [
+        { value: 'o_yes', level: 'pass', label: { en: 'Yes', pt: 'Sim' } },
+        { value: 'o_no', level: 'fail', label: { en: 'No', pt: 'Não' }, note: { en: 'Insurance is required.', pt: '' } },
+      ],
+    };
+    const forms = mergeForms({ s1_us: [added, ...qs] });
+    expect(forms.s1.us.map((q) => q.id)).toEqual(['q_new1', ...qs.map((q) => q.id)]);
+    // Portuguese falls back to English when left blank.
+    expect(forms.s1.us[0].req.pt).toBe('Insurance');
+
+    expect(stage1Complete('us', best('us'), forms)).toBe(false);
+    const { premises: _gone, ...rest } = best('us');
+    const pass = scoreStage1('us', { ...rest, q_new1: 'o_yes' }, forms);
+    expect(pass).toMatchObject({ rating: 'compliant', score: 100 });
+    expect(pass.findings).toHaveLength(9);
+    expect(pass.findings[0]).toMatchObject({ id: 'q_new1', topic: { en: 'Insurance' } });
+    const fail = scoreStage1('us', { ...rest, q_new1: 'o_no' }, forms);
+    expect(fail).toMatchObject({ rating: 'not_compliant', passed: false });
+    expect(fail.findings[0].note?.en).toBe('Insurance is required.');
+  });
+
+  it('keeps the combined staffing rule only while both questions exist', () => {
+    const answers = { ...best('us'), runs: 'owner_does', employees: '1to2' };
+    expect(scoreStage1('us', answers).passed).toBe(false);
+    const forms = mergeForms({ s1_us: F.s1.us.filter((q) => q.id !== 'employees') });
+    const { employees: _gone, ...rest } = answers;
+    expect(scoreStage1('us', rest, forms)).toMatchObject({ rating: 'gaps', passed: true });
+  });
+
+  it('refuses L-1 forms that could not be answered or passed', () => {
+    const bad = (change: (qs: ChoiceQuestion[]) => void) => {
+      const qs = edit(F.s1.us);
+      change(qs);
+      return formProblem('s1_us', canonicalForm('s1_us', qs))?.en;
+    };
+    expect(bad((qs) => qs.splice(0))).toMatch(/at least one question/);
+    expect(bad((qs) => (qs[0].label.en = '  '))).toMatch(/Question 1 needs its text/);
+    expect(bad((qs) => (qs[1].req.en = ''))).toMatch(/Question 2 needs a requirement name/);
+    expect(bad((qs) => qs[0].options.splice(1))).toMatch(/at least two answers/);
+    expect(bad((qs) => qs[0].options.forEach((o) => (o.level = 'fail')))).toMatch(/nobody could pass/);
+    expect(bad((qs) => (qs[1].id = qs[0].id))).toMatch(/share an identifier/);
+    expect(bad((qs) => (qs[0].options[1].value = qs[0].options[0].value))).toMatch(/share an identifier/);
+    // A saved form that no longer validates falls back to the shipped one.
+    expect(mergeForms({ s1_us: [], s4: 'garbage' })).toBe(F);
+  });
+
+  it('leaves out health results whose questions were removed', () => {
+    const sections = edit(F.s2.us).map((s) => ({ ...s, fields: s.fields.filter((f) => f.id !== 'price' && f.id !== 'lease_years') }));
+    const forms = mergeForms({ s2_us: sections });
+    const { price: _p, lease_years: _l, ...rest } = usGood;
+    expect(stage2Complete('us', rest, forms)).toBe(true);
+    const ids = scoreStage2('us', rest, forms).metrics.map((m) => m.id);
+    const gone = METRICS.us.filter((m) => m.needs.includes('price') || m.needs.includes('lease_years')).map((m) => m.id);
+    expect(gone).toEqual(['multiple', 'return', 'lease']);
+    expect(ids).toEqual(METRICS.us.map((m) => m.id).filter((id) => !gone.includes(id)));
+  });
+
+  it('asks added health questions and scores the graded ones', () => {
+    const sections: Section[] = [
+      ...edit(F.s2.us),
+      {
+        id: 's_more',
+        title: { en: 'More', pt: 'Mais' },
+        fields: [
+          {
+            id: 'x_books',
+            kind: 'choice',
+            label: { en: 'Who keeps the books?', pt: 'Quem faz a contabilidade?' },
+            options: [
+              { value: 'o_cpa', label: { en: 'A CPA', pt: 'Um contador' }, grade: 'good' },
+              { value: 'o_self', label: { en: 'The owner', pt: 'O dono' }, grade: 'weak', note: { en: 'Hire a bookkeeper.', pt: 'Contrate um contador.' } },
+              { value: 'o_na', label: { en: 'Not sure', pt: 'Não sei' } },
+            ],
+          },
+          { id: 'x_trucks', kind: 'number', label: { en: 'Vehicles', pt: 'Veículos' } },
+          { id: 'x_notes', kind: 'text', label: { en: 'Anything else?', pt: 'Algo mais?' }, optional: true },
+        ],
+      },
+    ];
+    const forms = mergeForms({ s2_us: sections });
+    expect(forms.s2.us).toHaveLength(5);
+    expect(stage2Complete('us', usGood, forms)).toBe(false);
+    const answers = { ...usGood, x_books: 'o_self', x_trucks: 4 };
+    expect(stage2Complete('us', answers, forms)).toBe(true);
+    expect(stage2Complete('us', { ...answers, x_books: 'nope' }, forms)).toBe(false);
+    expect(stage2Complete('us', { ...answers, x_notes: 'x'.repeat(501) }, forms)).toBe(false);
+
+    const r = scoreStage2('us', { ...answers, x_notes: 'Two locations' }, forms);
+    expect(r.metrics.at(-1)).toMatchObject({ id: 'x_books', grade: 'weak', valueL: { pt: 'O dono' }, note: { en: 'Hire a bookkeeper.' } });
+    expect(r.extra).toEqual([
+      { id: 'x_trucks', label: { en: 'Vehicles', pt: 'Veículos' }, value: '4' },
+      { id: 'x_notes', label: { en: 'Anything else?', pt: 'Algo mais?' }, value: 'Two locations' },
+    ]);
+    expect(r.score).toBeLessThan(100);
+    // An ungraded answer is reported without counting toward the score.
+    const neutral = scoreStage2('us', { ...answers, x_books: 'o_na' }, forms);
+    expect(neutral.score).toBe(100);
+    expect(neutral.extra?.[0]).toMatchObject({ id: 'x_books', valueL: { en: 'Not sure' } });
+    expect(P.cleanStage2('us', { ...answers, junk: 1, x_notes: '' }, forms)).not.toHaveProperty('junk');
+  });
+
+  it('keeps the type and option values of built-in health questions fixed', () => {
+    const sections = edit(F.s2.us) as unknown as { fields: Record<string, unknown>[] }[];
+    const price = sections[3].fields[0];
+    Object.assign(price, { kind: 'text', unit: 'BRL', allowNegative: true, label: { en: 'Price you want', pt: '' } });
+    const note = sections[3].fields[1];
+    note.options = [{ value: 'yes20', label: { en: 'Twenty or more', pt: '' } }, { value: 'made_up', label: { en: 'x', pt: 'x' } }];
+    const body = canonicalForm('s2_us', sections) as Section[];
+    expect(body[3].fields[0]).toEqual({ id: 'price', kind: 'money', unit: 'USD', label: { en: 'Price you want', pt: 'Price you want' } });
+    expect(body[3].fields[1].options?.map((o) => o.value)).toEqual(['yes20', 'some', 'none']);
+    // The reworded option is kept; the ones left out have no text, so the form is refused.
+    expect(body[3].fields[1].options?.[0].label.en).toBe('Twenty or more');
+    expect(formProblem('s2_us', body)?.en).toMatch(/Every answer/);
+  });
+
+  it('refuses health forms without revenue, with empty sections or foreign identifiers', () => {
+    const bad = (change: (s: Section[]) => void) => {
+      const sections = edit(F.s2.br);
+      change(sections);
+      return formProblem('s2_br', canonicalForm('s2_br', sections))?.en;
+    };
+    expect(bad((s) => s.shift())).toMatch(/revenue questions must stay/);
+    expect(bad((s) => s[2].fields.splice(0))).toMatch(/has no questions/);
+    expect(bad((s) => s[1].fields.push(s[1].fields[0]))).toMatch(/share an identifier/);
+    expect(bad((s) => s[1].fields.push({ id: 'as_of', kind: 'text', label: { en: 'Hack', pt: '' } }))).toMatch(/identifier that is not allowed/);
+    expect(bad((s) => s[1].fields.push({ id: 'x_abcd', kind: 'choice', label: { en: 'Pick', pt: '' }, options: [{ value: 'a', label: { en: 'A', pt: '' } }] }))).toMatch(/at least two answers/);
+  });
+
+  it('follows edited disclosures', () => {
+    const forms = mergeForms({ s4: [...F.s4.slice(1), { id: 'q_env', label: { en: 'Any environmental claim?', pt: '' } }] });
+    const owners = [{ name: 'Ann Lee', pct: 100, role: '' }];
+    const all = Object.fromEntries(F.s4.map((d) => [d.id, 'no']));
+    expect(stage4Complete({ owners, disclosures: all }, forms)).toBe(false);
+    expect(stage4Complete({ owners, disclosures: { ...all, q_env: 'yes' } }, forms)).toBe(true);
+    expect(stage4Complete({ owners, disclosures: {} }, mergeForms({ s4: [] }))).toBe(true);
   });
 });

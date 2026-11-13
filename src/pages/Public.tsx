@@ -1,7 +1,7 @@
 import { ArrowRight, Building2, Check, Clock, FileX, KeyRound, MailCheck, MousePointerClick, Plane } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { KINDS, scoreStage1, stage1Complete, type Kind, type Stage1Answers } from '../../shared/process';
+import { KINDS, scoreStage1, stage1Complete, type Forms, type Kind, type Stage1Answers } from '../../shared/process';
 import { api, type User } from '../api';
 import { useSession } from '../session';
 import { Stage1ResultView, Stage1Wizard } from '../stage1';
@@ -12,12 +12,12 @@ type Contact = { name: string; email: string };
 /** `cleared`: the team opened the next step for a result that did not pass. */
 type Draft = { kind: Kind; answers: Stage1Answers | null; contact?: Contact | null; cleared?: boolean };
 
-export function loadDraft(): Draft | null {
+export function loadDraft(forms: Forms): Draft | null {
   try {
     const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? 'null') as Draft | null;
     if (!d || (d.kind !== 'us' && d.kind !== 'br')) return null;
     const contact = d.contact && typeof d.contact.email === 'string' && typeof d.contact.name === 'string' ? d.contact : null;
-    return { kind: d.kind, answers: d.answers && stage1Complete(d.kind, d.answers) ? d.answers : null, contact, cleared: d.cleared === true };
+    return { kind: d.kind, answers: d.answers && stage1Complete(d.kind, d.answers, forms) ? d.answers : null, contact, cleared: d.cleared === true };
   } catch {
     return null;
   }
@@ -25,11 +25,13 @@ export function loadDraft(): Draft | null {
 const saveDraft = (d: Draft) => sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d));
 
 export function Landing() {
-  const { t, user } = useSession();
+  const { t, user, forms } = useSession();
   if (user) return <Navigate to="/app" replace />;
+  // The two tracks can have different numbers of questions; a count is shown only when they agree.
+  const count = forms.s1.us.length === forms.s1.br.length ? forms.s1.us.length : null;
   const facts = [
     { icon: Clock, text: t('2 minutes', '2 minutos') },
-    { icon: MousePointerClick, text: t('9 questions', '9 perguntas') },
+    { icon: MousePointerClick, text: count ? t(`${count} questions`, `${count} perguntas`) : t('A few questions', 'Poucas perguntas') },
     { icon: FileX, text: t('No documents', 'Sem documentos') },
   ];
   const tracks = [
@@ -89,7 +91,7 @@ export function Landing() {
               <span className="stage-num">1</span>
               <div className="grow">
                 <div className="row between" style={{ alignItems: 'baseline' }}>
-                  <strong>{t('Nine quick questions', 'Nove perguntas rápidas')}</strong>
+                  <strong>{count ? t(`${count} quick questions`, `${count} perguntas rápidas`) : t('A few quick questions', 'Algumas perguntas rápidas')}</strong>
                   <span className="tiny faint">{t('2 min', '2 min')}</span>
                 </div>
                 <p className="small muted">{t('One tap each. You get your result right away.', 'Um toque cada. O resultado sai na hora.')}</p>
@@ -135,11 +137,11 @@ export function Landing() {
 }
 
 export function QuickCheck() {
-  const { t, tl, lang, user } = useSession();
+  const { t, tl, lang, user, forms } = useSession();
   const params = useParams();
   const kind: Kind | null = params.kind === 'us' || params.kind === 'br' ? params.kind : null;
   const [draft, setDraft] = useState<Draft | null>(() => {
-    const d = loadDraft();
+    const d = loadDraft(forms);
     return d && d.kind === kind ? d : null;
   });
   const [form, setForm] = useState<Contact>({ name: '', email: '' });
@@ -155,9 +157,9 @@ export function QuickCheck() {
   }, [kind, draft]);
 
   if (!kind) return <Navigate to="/" replace />;
-  const answers = draft?.answers ?? null;
+  const answers = kind && draft?.answers && stage1Complete(kind, draft.answers, forms) ? draft.answers : null;
   const contact = draft?.contact ?? null;
-  const result = answers && contact ? scoreStage1(kind, answers) : null;
+  const result = answers && contact ? scoreStage1(kind, answers, forms) : null;
 
   const capture = (e: React.FormEvent) => {
     e.preventDefault();
@@ -284,15 +286,15 @@ function AuthShell({ title, sub, children }: { title: string; sub?: string; chil
 }
 
 export function SignUp() {
-  const { t, lang, setUser, user, config } = useSession();
+  const { t, lang, setUser, user, config, forms } = useSession();
   const navigate = useNavigate();
-  const draft = loadDraft();
+  const draft = loadDraft(forms);
   const [form, setForm] = useState({ name: draft?.contact?.name ?? '', email: draft?.contact?.email ?? '', password: '' });
   const { busy, error, run } = useAction();
   if (user) return <Navigate to="/app" replace />;
   if (!draft?.answers) return <Navigate to="/" replace />;
   // A result that did not pass ends at the scorecard until the team opens the next step.
-  if (!draft.cleared && !scoreStage1(draft.kind, draft.answers).passed) return <Navigate to={`/check/${draft.kind}`} replace />;
+  if (!draft.cleared && !scoreStage1(draft.kind, draft.answers, forms).passed) return <Navigate to={`/check/${draft.kind}`} replace />;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, X } from 'lucide-react';
 import { useState } from 'react';
-import { QUESTIONS, STAGE1_HEADLINE, STAGE1_RATING, type Kind, type Level, type Stage1Answers, type Stage1Result } from '../shared/process';
+import { STAGE1_HEADLINE, STAGE1_RATING, type Kind, type Level, type Stage1Answers, type Stage1Result } from '../shared/process';
 import { useSession } from './session';
 import { Chip, s1Tone } from './ui';
 
@@ -8,11 +8,12 @@ const tone = { pass: 'good', caution: 'warn', fail: 'bad' } as const;
 
 /** One question per screen; a tap answers and moves on. */
 export function Stage1Wizard({ kind, onDone }: { kind: Kind; onDone: (a: Stage1Answers) => void }) {
-  const { t, tl } = useSession();
+  const { t, tl, forms } = useSession();
   const [answers, setAnswers] = useState<Stage1Answers>({});
   const [i, setI] = useState(0);
-  const STAGE1 = QUESTIONS[kind];
-  const q = STAGE1[i];
+  const STAGE1 = forms.s1[kind];
+  // The questions can change while the page is open.
+  const q = STAGE1[Math.min(i, STAGE1.length - 1)];
 
   const pick = (value: string) => {
     const next = { ...answers, [q.id]: value };

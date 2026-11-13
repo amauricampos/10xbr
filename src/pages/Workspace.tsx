@@ -3,10 +3,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import {
   MONTH_NAMES,
+  TEXT_MAX,
   asOfNow,
   cleanStage2,
-  fieldsFor,
-  groupsFor,
+  sectionsFor,
   KINDS,
   LAST_STAGE,
   STAGE2_RATING,
@@ -15,6 +15,7 @@ import {
   scoreStage2,
   stage2Complete,
   type FieldDef,
+  type Forms,
   type Kind,
   type Stage2Answers,
   type Stage2Result,
@@ -347,7 +348,7 @@ function FormSection({ n, title, hint, children }: { n: number; title: string; h
 }
 
 function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
-  const { t, tl } = useSession();
+  const { t, tl, forms } = useSession();
   const [company, setCompany] = useState(c.company_name);
   const [location, setLocation] = useState(c.location);
   const [industry, setIndustry] = useState(c.industry);
@@ -358,7 +359,7 @@ function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
     if (saved.as_of !== asOf) delete saved.rev_ytd;
     return { ...saved, as_of: asOf };
   });
-  const fields = fieldsFor(c.kind, a);
+  const sections = sectionsFor(c.kind, a, forms);
   const thisYear = Number(String(a.as_of).slice(0, 4));
   const { busy, error, run } = useAction();
 
@@ -369,7 +370,7 @@ function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
       else next[id] = v;
       return next;
     });
-  const ready = company.trim() && location.trim().length >= 2 && industry.trim().length >= 2 && stage2Complete(c.kind, a);
+  const ready = company.trim() && location.trim().length >= 2 && industry.trim().length >= 2 && stage2Complete(c.kind, a, forms);
 
   return (
     <form
@@ -378,7 +379,7 @@ function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
       onSubmit={(e) => {
         e.preventDefault();
         run(async () => {
-          await api.put(`/cases/${c.id}/stage2`, { company_name: company, location, industry, answers: cleanStage2(c.kind, a) });
+          await api.put(`/cases/${c.id}/stage2`, { company_name: company, location, industry, answers: cleanStage2(c.kind, a, forms) });
           await onSaved();
         });
       }}
@@ -431,24 +432,30 @@ function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
               }}
             />
           </div>
-          {typeof a.started_year === 'number' && a.started_year >= 1000 && typeof a.started_month === 'number' && fields.every((f) => !f.id.startsWith('rev_')) && (
+          {typeof a.started_year === 'number' && a.started_year >= 1000 && typeof a.started_month === 'number' && sections.some((s) => s.awaitsStart) && (
             <span className="error">{t(`Enter a date up to this month, ${thisYear}.`, `Informe uma data até este mês de ${thisYear}.`)}</span>
           )}
         </Field>
       </FormSection>
-      {groupsFor(c.kind, a).map((g, i) => (
-        <FormSection key={g.title.en} n={i + 2} title={tl(g.title)} hint={tl(g.hint)}>
+      {sections.map((g, i) => (
+        <FormSection
+          key={g.id}
+          n={i + 2}
+          title={tl(g.title)}
+          hint={g.awaitsStart ? t('Enter when the business started above and the right years appear here.', 'Informe acima quando o negócio começou e os anos certos aparecem aqui.') : tl(g.hint)}
+        >
           <div className={`fields cols-${g.cols}`}>
-            {g.fields.map((id) => {
-              const f = fields.find((x) => x.id === id);
-              if (!f) return null;
+            {g.fields.map((f) => {
+              const label = f.optional ? `${tl(f.label)} (${t('optional', 'opcional')})` : tl(f.label);
               return (
-                <div key={f.id} className={f.kind === 'choice' ? 'wide' : undefined}>
-                  <Field label={tl(f.short ?? f.label)} help={tl(f.help)}>
-                    {f.kind === 'choice' ? (
+                <div key={f.id} className={f.kind === 'choice' || f.kind === 'text' ? 'wide' : undefined}>
+                  <Field label={label} help={tl(f.help)}>
+                    {f.kind === 'text' ? (
+                      <textarea className="textarea" name={f.id} rows={2} maxLength={TEXT_MAX} value={(a[f.id] as string | undefined) ?? ''} onChange={(e) => set(f.id, e.target.value || undefined)} />
+                    ) : f.kind === 'choice' ? (
                       <div className="seg">
                         {f.options!.map((o) => (
-                          <button type="button" key={o.value} aria-pressed={a[f.id] === o.value} onClick={() => set(f.id, o.value)}>
+                          <button type="button" key={o.value} aria-pressed={a[f.id] === o.value} onClick={() => set(f.id, f.optional && a[f.id] === o.value ? undefined : o.value)}>
                             {tl(o.label)}
                           </button>
                         ))}
@@ -514,22 +521,32 @@ export function Stage2ResultView({ kind, result }: { kind: Kind; result: Stage2R
               <span className="small muted">{tl(m.label)}</span>
               <Chip tone={gradeTone[m.grade]}>{gradeLabel[m.grade]}</Chip>
             </div>
-            <span className="v">{metricValue(m.value, lang)}</span>
+            <span className="v">{m.valueL ? tl(m.valueL) : metricValue(m.value, lang)}</span>
             <span className="tiny faint">{tl(m.note)}</span>
           </div>
         ))}
       </div>
+      {!!result.extra?.length && (
+        <dl className="kv">
+          {result.extra.map((x) => (
+            <div key={x.id} style={{ display: 'contents' }}>
+              <dt>{tl(x.label)}</dt>
+              <dd style={{ overflowWrap: 'anywhere' }}>{x.valueL ? tl(x.valueL) : x.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   );
 }
 
 function Stage2Panel({ c, staff, reload, go }: PanelProps) {
-  const { t } = useSession();
+  const { t, forms } = useSession();
   const [editing, setEditing] = useState(false);
   const editable = !staff && c.stage >= 2 && c.stage <= 3 && (c.status === 'active' || c.status === 'stopped');
 
   // Staff see the score even if the owner's last edit cleared it.
-  const result = c.s2_result ?? (c.s2_answers && safeScore(c.kind, c.s2_answers));
+  const result = c.s2_result ?? (c.s2_answers && safeScore(c.kind, c.s2_answers, forms));
 
   if ((!result || editing) && editable) {
     return (
@@ -574,9 +591,9 @@ function Stage2Panel({ c, staff, reload, go }: PanelProps) {
   );
 }
 
-function safeScore(kind: Kind, a: Stage2Answers): Stage2Result | null {
+function safeScore(kind: Kind, a: Stage2Answers, forms: Forms): Stage2Result | null {
   try {
-    return scoreStage2(kind, a);
+    return scoreStage2(kind, a, forms);
   } catch {
     return null;
   }

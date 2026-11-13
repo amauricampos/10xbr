@@ -112,6 +112,7 @@ export type Lead = {
   lang: 'en' | 'pt';
   s1_rating: import('../shared/process').Stage1Rating;
   s1_answers: Record<string, string>;
+  s1_result: import('../shared/process').Stage1Result | null;
   updated_at: number;
   scorecard_sent_at: number | null;
   cleared_at: number | null;

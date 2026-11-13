@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { QUESTIONS, scoreStage1, type Kind, type Stage1Answers } from '../shared/process';
+import { DEFAULT_FORMS, scoreStage1 as score, type Kind, type Stage1Answers } from '../shared/process';
+
+const QUESTIONS = DEFAULT_FORMS.s1;
+const scoreStage1 = (kind: Kind, a: Stage1Answers) => score(kind, a, DEFAULT_FORMS);
 import { scorecardEmail } from '../worker/scorecard';
 
 const pick = (kind: Kind, level: 'pass' | 'fail'): Stage1Answers =>

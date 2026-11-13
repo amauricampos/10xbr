@@ -2,7 +2,7 @@ import { Check, Download, FolderOpen, PenLine, Plus, RefreshCw, Send, Sparkles, 
 import { useEffect, useRef, useState } from 'react';
 import { docsFor, type DocItem } from '../../shared/documents';
 import { NDA_VERSION, ndaText } from '../../shared/legal';
-import { DISCLOSURES, stage4Complete, type Owner } from '../../shared/process';
+import { stage4Complete, type Owner } from '../../shared/process';
 import { api, type Case, type Doc } from '../api';
 import { useSession } from '../session';
 import { Chip, Field, Spinner, fmtDate, fmtSize, useAction } from '../ui';
@@ -356,10 +356,11 @@ export function DocumentsPanel({ c, staff, reload }: PanelProps) {
 /* ------------------------------------------------------------------ */
 
 function OwnersForm({ c, staff, reload }: Common) {
-  const { t, tl } = useSession();
+  const { t, tl, forms } = useSession();
   const [owners, setOwners] = useState<Owner[]>(c.s4_answers?.owners ?? [{ name: '', pct: 100, role: '' }]);
   const [disclosures, setDisclosures] = useState<Record<string, string>>(c.s4_answers?.disclosures ?? {});
-  const [saved, setSaved] = useState(!!c.s4_answers);
+  // A question added since the last save leaves the form unsaved until it is answered.
+  const [saved, setSaved] = useState(stage4Complete(c.s4_answers, forms));
   const { busy, error, run } = useAction();
   const editable = !staff && c.stage === 4 && c.status === 'active';
   const total = owners.reduce((s, o) => s + (Number.isFinite(o.pct) ? o.pct : 0), 0);
@@ -384,7 +385,7 @@ function OwnersForm({ c, staff, reload }: Common) {
           ))}
         </dl>
         <div className="stack" style={{ '--gap': '6px' } as React.CSSProperties}>
-          {DISCLOSURES.map((d) => {
+          {(c.s4_answers.asked ?? forms.s4).map((d) => {
             const yes = c.s4_answers!.disclosures[d.id] === 'yes';
             return (
               <div key={d.id} className="row between small">
@@ -424,7 +425,7 @@ function OwnersForm({ c, staff, reload }: Common) {
         </div>
       </div>
       <div className="stack" style={{ '--gap': '10px' } as React.CSSProperties}>
-        {DISCLOSURES.map((d) => (
+        {forms.s4.map((d) => (
           <div key={d.id} className="row between wrapping">
             <span className="small grow">{tl(d.label)}</span>
             <div className="seg" style={{ width: 150, flex: 'none' }}>
@@ -442,7 +443,7 @@ function OwnersForm({ c, staff, reload }: Common) {
       <div>
         <button
           className="btn"
-          disabled={busy || saved || !stage4Complete({ owners, disclosures })}
+          disabled={busy || saved || !stage4Complete({ owners, disclosures }, forms)}
           onClick={() => run(async () => { await api.put(`/cases/${c.id}/stage4`, { owners, disclosures }); setSaved(true); await reload(); })}
         >
           {saved ? <Check size={15} /> : null} {saved ? t('Saved', 'Salvo') : t('Save owners', 'Salvar sócios')}

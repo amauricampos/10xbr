@@ -1,11 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, type Config, type User } from './api';
-import type { L, Lang } from '../shared/process';
+import { DEFAULT_FORMS, type Forms, type L, type Lang } from '../shared/process';
 
 type Session = {
   ready: boolean;
   user: User | null;
   config: Config;
+  /** The questionnaires in use, as the team last saved them. */
+  forms: Forms;
   lang: Lang;
   setLang: (l: Lang) => void;
   setUser: (u: User | null) => void;
@@ -28,11 +30,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [config, setConfig] = useState<Config>({ entity: '10x BR', openSignup: true, setupNeeded: false, ai: true });
+  const [forms, setForms] = useState<Forms>(DEFAULT_FORMS);
   const [lang, setLangState] = useState<Lang>(initialLang);
 
   const refresh = useCallback(async () => {
-    const me = await api.get<{ user: User | null; config: Config }>('/auth/me');
+    const me = await api.get<{ user: User | null; config: Config; forms: Forms }>('/auth/me');
     setUser(me.user);
+    setForms(me.forms);
     setConfig(me.config);
     if (me.user && !localStorage.getItem('lang')) setLangState(me.user.lang);
   }, []);
@@ -61,6 +65,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       ready,
       user,
       config,
+      forms,
       lang,
       setLang,
       setUser,
@@ -68,7 +73,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       t: (en, pt) => (lang === 'pt' ? pt : en),
       tl: (l) => (l ? l[lang] : ''),
     }),
-    [ready, user, config, lang, setLang, refresh],
+    [ready, user, config, forms, lang, setLang, refresh],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

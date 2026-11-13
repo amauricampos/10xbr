@@ -69,8 +69,8 @@ export const STAGES: StageDef[] = [
     id: 1,
     title: { us: { en: 'L-1 compliance', pt: 'Conformidade L-1' }, br: { en: 'L-1 qualification', pt: 'Qualificação L-1' } },
     blurb: {
-      us: { en: 'Nine one-tap questions about the business.', pt: 'Nove perguntas de um toque sobre o negócio.' },
-      br: { en: 'Nine one-tap questions about you and your company.', pt: 'Nove perguntas de um toque sobre você e a sua empresa.' },
+      us: { en: 'One-tap questions about the business.', pt: 'Perguntas de um toque sobre o negócio.' },
+      br: { en: 'One-tap questions about you and your company.', pt: 'Perguntas de um toque sobre você e a sua empresa.' },
     },
     time: { en: '2 min', pt: '2 min' },
   },
@@ -572,18 +572,20 @@ const BR_QUESTIONS: ChoiceQuestion[] = [
   },
 ];
 
-export const QUESTIONS: Record<Kind, ChoiceQuestion[]> = { us: US_QUESTIONS, br: BR_QUESTIONS };
-
 /**
  * Requirements that depend on two answers together. The staffing rule looks at
  * the reasonable needs of the business: a tiny team plus a hands-on manager
  * leaves no managerial role, even though neither answer fails alone.
+ * A rule applies only while both questions and both answers still exist in the form.
  */
-const CROSS_RULES: Record<Kind, { when: (a: Stage1Answers) => boolean; id: string; note: L }[]> = {
+export type CrossRule = { id: string; value: string; other: string; otherValue: string; note: L };
+export const CROSS_RULES: Record<Kind, CrossRule[]> = {
   us: [
     {
       id: 'runs',
-      when: (a) => a.runs === 'owner_does' && a.employees === '1to2',
+      value: 'owner_does',
+      other: 'employees',
+      otherValue: '1to2',
       note: {
         en: 'With one or two employees and the owner doing most of the work, there is no managerial role for an L-1A buyer to step into.',
         pt: 'Com um ou dois funcionários e o dono fazendo a maior parte do trabalho, não há cargo gerencial para um comprador L-1A assumir.',
@@ -593,7 +595,9 @@ const CROSS_RULES: Record<Kind, { when: (a: Stage1Answers) => boolean; id: strin
   br: [
     {
       id: 'manages',
-      when: (a) => a.manages === 'hands_on' && a.employees === '1to2',
+      value: 'hands_on',
+      other: 'employees',
+      otherValue: '1to2',
       note: {
         en: 'With one or two employees and mostly hands-on work, a managerial role cannot be shown today. Build a team and delegate first.',
         pt: 'Com um ou dois funcionários e trabalho principalmente operacional, não é possível demonstrar cargo gerencial hoje. Monte uma equipe e delegue antes.',
@@ -629,18 +633,20 @@ export const STAGE1_HEADLINE: Record<Kind, Record<Stage1Rating, L>> = {
   },
 };
 
-export function stage1Complete(kind: Kind, a: Stage1Answers): boolean {
-  return QUESTIONS[kind].every((q) => q.options.some((o) => o.value === a[q.id]));
+export function stage1Complete(kind: Kind, a: Stage1Answers, forms: Forms): boolean {
+  return forms.s1[kind].every((q) => q.options.some((o) => o.value === a[q.id]));
 }
 
-export function scoreStage1(kind: Kind, a: Stage1Answers): Stage1Result {
-  const questions = QUESTIONS[kind];
+export function scoreStage1(kind: Kind, a: Stage1Answers, forms: Forms): Stage1Result {
+  const questions = forms.s1[kind];
   const findings: Finding[] = [];
   let points = 0;
   for (const q of questions) {
     const opt = q.options.find((o) => o.value === a[q.id]);
     if (!opt) throw new Error(`Missing answer: ${q.id}`);
-    const cross = CROSS_RULES[kind].find((r) => r.id === q.id && r.when(a));
+    const cross = CROSS_RULES[kind].find(
+      (r) => r.id === q.id && r.value === opt.value && questions.some((x) => x.id === r.other && x.options.some((o) => o.value === r.otherValue)) && a[r.other] === r.otherValue,
+    );
     const level: Level = cross ? 'fail' : opt.level;
     points += level === 'pass' ? 2 : level === 'caution' ? 1 : 0;
     findings.push({ id: q.id, level, topic: q.req, label: opt.label, note: cross?.note ?? opt.note });
@@ -659,42 +665,58 @@ export function scoreStage1(kind: Kind, a: Stage1Answers): Stage1Result {
 /* Stage 2: business health                                            */
 /* ------------------------------------------------------------------ */
 
+export type Grade = 'good' | 'ok' | 'weak';
+/** `grade` and `note` apply to questions the team adds: a graded option counts toward the score. */
+export type FieldOption = { value: string; label: L; grade?: Grade; note?: L };
 export type FieldDef = {
   id: string;
-  kind: 'money' | 'number' | 'choice';
+  /** `revenue` stands for the revenue questions, one per year since the business started. */
+  kind: 'money' | 'number' | 'choice' | 'text' | 'revenue';
   label: L;
-  /** Label used on the form, where the section heading already gives the context. */
-  short?: L;
   help?: L;
   unit?: 'BRL' | 'USD' | 'years' | 'people' | 'hours' | '%';
   max?: number;
-  options?: { value: string; label: L }[];
+  options?: FieldOption[];
   allowNegative?: boolean;
+  optional?: boolean;
 };
+export type Section = { id: string; title: L; hint?: L; fields: FieldDef[] };
 
-/** Fields that do not depend on a period. Revenue and earnings are added by `fieldsFor`. */
+const REVENUE: FieldDef = { id: 'revenue', kind: 'revenue', label: { en: 'Revenue for each year since the business started', pt: 'Faturamento de cada ano desde o início do negócio' } };
+
+/**
+ * The questions the health score is computed from. The team can reword, move or remove them,
+ * but their type, unit and option values are fixed here because the formulas depend on them.
+ */
 const US_FIELDS: FieldDef[] = [
-  { id: 'price', kind: 'money', unit: 'USD', label: { en: 'Asking price', pt: 'Preço pedido' } },
+  REVENUE,
+  {
+    id: 'sde',
+    kind: 'money',
+    unit: 'USD',
+    allowNegative: true,
+    label: { en: 'Owner’s earnings (SDE)', pt: 'Lucro do proprietário (SDE)' },
+    help: { en: 'Profit plus the owner’s own pay and perks. Use a negative number for a loss.', pt: 'Lucro mais a remuneração e os benefícios do dono. Use número negativo para prejuízo.' },
+  },
+  {
+    id: 'debt',
+    kind: 'money',
+    unit: 'USD',
+    label: { en: 'Total owed today', pt: 'Total devido hoje' },
+    help: { en: 'Loans, credit lines and equipment financing. Enter 0 if none.', pt: 'Empréstimos, linhas de crédito e financiamento de equipamentos. Digite 0 se não houver.' },
+  },
   { id: 'employees', kind: 'number', unit: 'people', max: 100_000, label: { en: 'Employees on payroll (W-2)', pt: 'Funcionários na folha (W-2)' } },
+  { id: 'owner_hours', kind: 'number', unit: 'hours', max: 120, label: { en: 'Owner’s hours per week', pt: 'Horas do dono por semana' } },
+  { id: 'top_customer_pct', kind: 'number', unit: '%', max: 100, label: { en: 'Largest customer’s share of revenue', pt: 'Parcela do maior cliente no faturamento' } },
   {
     id: 'lease_years',
     kind: 'number',
     unit: 'years',
     max: 99,
-    label: { en: 'Lease years remaining, with options', pt: 'Anos restantes de aluguel, com opções' },
-    short: { en: 'Years left on the lease', pt: 'Anos restantes de aluguel' },
+    label: { en: 'Years left on the lease', pt: 'Anos restantes de aluguel' },
     help: { en: 'Include renewal options. Enter 10 if the business owns the property.', pt: 'Inclua opções de renovação. Digite 10 se o imóvel for próprio.' },
   },
-  { id: 'owner_hours', kind: 'number', unit: 'hours', max: 120, label: { en: 'Hours the owner works per week', pt: 'Horas que o dono trabalha por semana' }, short: { en: 'Owner’s hours per week', pt: 'Horas do dono por semana' } },
-  { id: 'top_customer_pct', kind: 'number', unit: '%', max: 100, label: { en: 'Largest customer, share of revenue', pt: 'Maior cliente, parcela do faturamento' }, short: { en: 'Largest customer’s share of revenue', pt: 'Parcela do maior cliente no faturamento' } },
-  {
-    id: 'debt',
-    kind: 'money',
-    unit: 'USD',
-    label: { en: 'Business debt today', pt: 'Dívida do negócio hoje' },
-    short: { en: 'Total owed today', pt: 'Total devido hoje' },
-    help: { en: 'Loans, credit lines and equipment financing. Enter 0 if none.', pt: 'Empréstimos, linhas de crédito e financiamento de equipamentos. Digite 0 se não houver.' },
-  },
+  { id: 'price', kind: 'money', unit: 'USD', label: { en: 'Asking price', pt: 'Preço pedido' } },
   {
     id: 'seller_note',
     kind: 'choice',
@@ -719,8 +741,20 @@ const US_FIELDS: FieldDef[] = [
 ];
 
 const BR_FIELDS: FieldDef[] = [
-  { id: 'cash', kind: 'money', unit: 'BRL', label: { en: 'Cash and liquid investments today', pt: 'Caixa e aplicações líquidas hoje' }, short: { en: 'Cash and liquid investments', pt: 'Caixa e aplicações líquidas' } },
-  { id: 'debt', kind: 'money', unit: 'BRL', label: { en: 'Total debt today', pt: 'Dívida total hoje' }, short: { en: 'Total debt', pt: 'Dívida total' }, help: { en: 'Enter 0 if none.', pt: 'Digite 0 se não houver.' } },
+  REVENUE,
+  { id: 'profit', kind: 'money', unit: 'BRL', allowNegative: true, label: { en: 'Net profit', pt: 'Lucro líquido' }, help: { en: 'Use a negative number for a loss.', pt: 'Use número negativo para prejuízo.' } },
+  { id: 'cash', kind: 'money', unit: 'BRL', label: { en: 'Cash and liquid investments', pt: 'Caixa e aplicações líquidas' } },
+  { id: 'debt', kind: 'money', unit: 'BRL', label: { en: 'Total debt', pt: 'Dívida total' }, help: { en: 'Enter 0 if none.', pt: 'Digite 0 se não houver.' } },
+  {
+    id: 'tax_status',
+    kind: 'choice',
+    label: { en: 'Are taxes and filings up to date?', pt: 'Impostos e obrigações estão em dia?' },
+    options: [
+      { value: 'good', label: { en: 'All current', pt: 'Tudo em dia' } },
+      { value: 'plan', label: { en: 'On a payment plan', pt: 'Em parcelamento' } },
+      { value: 'issues', label: { en: 'Overdue or in dispute', pt: 'Em atraso ou em disputa' } },
+    ],
+  },
   {
     id: 'invest_usd',
     kind: 'money',
@@ -728,33 +762,54 @@ const BR_FIELDS: FieldDef[] = [
     label: { en: 'Funds available to buy a U.S. business', pt: 'Recursos disponíveis para comprar um negócio nos EUA' },
     help: { en: 'In US dollars, company and personal funds together.', pt: 'Em dólares, somando recursos da empresa e pessoais.' },
   },
-  {
-    id: 'tax_status',
-    kind: 'choice',
-    label: { en: 'Taxes and filings', pt: 'Impostos e obrigações' },
-    short: { en: 'Are taxes and filings up to date?', pt: 'Impostos e obrigações estão em dia?' },
-    options: [
-      { value: 'good', label: { en: 'All current', pt: 'Tudo em dia' } },
-      { value: 'plan', label: { en: 'On a payment plan', pt: 'Em parcelamento' } },
-      { value: 'issues', label: { en: 'Overdue or in dispute', pt: 'Em atraso ou em disputa' } },
-    ],
-  },
 ];
 
-const BASE_FIELDS: Record<Kind, FieldDef[]> = { us: US_FIELDS, br: BR_FIELDS };
+export const BUILTIN_FIELDS: Record<Kind, FieldDef[]> = { us: US_FIELDS, br: BR_FIELDS };
+/** The earnings question; its label gets the period it covers appended. */
+export const EARNINGS_ID: Record<Kind, string> = { us: 'sde', br: 'profit' };
+
+/** Each health result and the questions it is computed from. A result is left out while one of its questions is removed. */
+export const METRICS: Record<Kind, { id: string; label: L; needs: string[] }[]> = {
+  us: [
+    { id: 'rev_trend', label: { en: 'Revenue trend', pt: 'Tendência de faturamento' }, needs: ['revenue'] },
+    { id: 'margin', label: { en: 'Earnings margin', pt: 'Margem de lucro' }, needs: ['revenue', 'sde'] },
+    { id: 'multiple', label: { en: 'Price ÷ earnings', pt: 'Preço ÷ lucro' }, needs: ['sde', 'price'] },
+    { id: 'salary', label: { en: 'After a manager salary', pt: 'Após salário de gerente' }, needs: ['sde'] },
+    { id: 'return', label: { en: 'Return on price', pt: 'Retorno sobre o preço' }, needs: ['sde', 'price'] },
+    { id: 'debt', label: { en: 'Debt load', pt: 'Endividamento' }, needs: ['sde', 'debt'] },
+    { id: 'team', label: { en: 'Team', pt: 'Equipe' }, needs: ['employees'] },
+    { id: 'lease', label: { en: 'Lease', pt: 'Aluguel' }, needs: ['lease_years'] },
+    { id: 'owner', label: { en: 'Owner dependence', pt: 'Dependência do dono' }, needs: ['owner_hours'] },
+    { id: 'concentration', label: { en: 'Largest customer', pt: 'Maior cliente' }, needs: ['top_customer_pct'] },
+    { id: 'reason', label: { en: 'Reason for sale', pt: 'Motivo da venda' }, needs: ['sale_reason'] },
+    { id: 'financing', label: { en: 'Seller financing', pt: 'Financiamento do vendedor' }, needs: ['seller_note'] },
+  ],
+  br: [
+    { id: 'rev_trend', label: { en: 'Revenue trend', pt: 'Tendência de faturamento' }, needs: ['revenue'] },
+    { id: 'margin', label: { en: 'Net margin', pt: 'Margem líquida' }, needs: ['revenue', 'profit'] },
+    { id: 'runway', label: { en: 'Cash runway', pt: 'Fôlego de caixa' }, needs: ['revenue', 'profit', 'cash'] },
+    { id: 'debt', label: { en: 'Debt load', pt: 'Endividamento' }, needs: ['profit', 'debt'] },
+    { id: 'tax', label: { en: 'Tax standing', pt: 'Situação fiscal' }, needs: ['tax_status'] },
+    { id: 'capacity', label: { en: 'Company can fund', pt: 'A empresa consegue aportar' }, needs: ['revenue', 'profit', 'cash', 'debt', 'invest_usd'] },
+    { id: 'funding', label: { en: 'Funds to invest', pt: 'Recursos para investir' }, needs: ['invest_usd'] },
+  ],
+};
 
 export type Stage2Answers = Record<string, number | string>;
-export type Grade = 'good' | 'ok' | 'weak';
 export type Metric = {
   id: string;
   label: L;
   /** Pre-formatted, language-neutral value such as "+12.4%" or "3.1×". */
   value: string;
+  /** Set instead when the value is an answer the owner picked, shown in their language. */
+  valueL?: L;
   grade: Grade;
   note: L;
 };
+/** An answer to a question the team added that does not count toward the score. */
+export type Extra = { id: string; label: L; value: string; valueL?: L };
 export type Stage2Rating = 'healthy' | 'watch' | 'weak';
-export type Stage2Result = { rating: Stage2Rating; passed: boolean; score: number; metrics: Metric[] };
+export type Stage2Result = { rating: Stage2Rating; passed: boolean; score: number; metrics: Metric[]; extra?: Extra[] };
 
 export const STAGE2_RATING: Record<Stage2Rating, L> = {
   healthy: { en: 'Healthy', pt: 'Saudável' },
@@ -828,81 +883,52 @@ export function planFor(a: Stage2Answers): Stage2Plan | null {
   return { periods, earnings };
 }
 
-const EARNINGS: Record<Kind, { id: string; label: L; help: L }> = {
-  us: {
-    id: 'sde',
-    label: { en: 'Owner’s earnings (SDE)', pt: 'Lucro do proprietário (SDE)' },
-    help: { en: 'Profit plus the owner’s own pay and perks. Use a negative number for a loss.', pt: 'Lucro mais a remuneração e os benefícios do dono. Use número negativo para prejuízo.' },
-  },
-  br: { id: 'profit', label: { en: 'Net profit', pt: 'Lucro líquido' }, help: { en: 'Use a negative number for a loss.', pt: 'Use número negativo para prejuízo.' } },
-};
-
-/** The fields to ask, given when the business started. Without a valid start only the undated fields are returned. */
-export function fieldsFor(kind: Kind, a: Stage2Answers): FieldDef[] {
+/** The form as the owner sees it: each section with its questions, revenue expanded into the periods to ask about. */
+export type FormSection = { id: string; title: L; hint?: L; cols: 2 | 3; fields: FieldDef[]; awaitsStart: boolean };
+export function sectionsFor(kind: Kind, a: Stage2Answers, forms: Forms): FormSection[] {
   const plan = planFor(a);
   const unit = kind === 'us' ? 'USD' : 'BRL';
-  if (!plan) return BASE_FIELDS[kind];
-  const e = EARNINGS[kind];
-  return [
-    ...plan.periods.map((p): FieldDef => ({ id: p.id, kind: 'money', unit, label: { en: `Revenue ${p.label.en}`, pt: `Faturamento ${p.label.pt}` }, short: p.label })),
-    {
-      id: e.id,
-      kind: 'money',
-      unit,
-      allowNegative: true,
-      label: { en: `${e.label.en}, ${plan.earnings.label.en}`, pt: `${e.label.pt}, ${plan.earnings.label.pt}` },
-      help: e.help,
-    },
-    ...BASE_FIELDS[kind],
-  ];
-}
-
-/** How the form lays the fields out: related numbers together, in the order an owner thinks of them. */
-export type FieldGroup = { title: L; hint?: L; fields: string[]; cols: 2 | 3 };
-export function groupsFor(kind: Kind, a: Stage2Answers): FieldGroup[] {
-  const plan = planFor(a);
-  const revenue: FieldGroup = {
-    title: { en: 'Revenue', pt: 'Faturamento' },
-    hint: plan
-      ? kind === 'us'
-        ? { en: 'Total sales in each period.', pt: 'Total de vendas em cada período.' }
-        : { en: 'Total sales in each period, in reais.', pt: 'Total de vendas em cada período, em reais.' }
-      : { en: 'Enter when the business started above and the right years appear here.', pt: 'Informe acima quando o negócio começou e os anos certos aparecem aqui.' },
-    fields: plan ? plan.periods.map((p) => p.id) : [],
-    cols: plan && plan.periods.length === 3 ? 3 : 2,
-  };
-  if (kind === 'us') {
-    return [
-      revenue,
-      { title: { en: 'Earnings and debt', pt: 'Lucro e dívida' }, fields: ['sde', 'debt'], cols: 2 },
-      { title: { en: 'Team and operations', pt: 'Equipe e operação' }, fields: ['employees', 'owner_hours', 'top_customer_pct', 'lease_years'], cols: 2 },
-      { title: { en: 'The sale', pt: 'A venda' }, fields: ['price', 'seller_note', 'sale_reason'], cols: 2 },
-    ];
-  }
-  return [
-    revenue,
-    { title: { en: 'Profit, cash and debt', pt: 'Lucro, caixa e dívida' }, fields: ['profit', 'cash', 'debt'], cols: 3 },
-    { title: { en: 'Taxes', pt: 'Impostos' }, fields: ['tax_status'], cols: 2 },
-    { title: { en: 'Your investment', pt: 'Seu investimento' }, fields: ['invest_usd'], cols: 2 },
-  ];
-}
-
-/** Keeps only the answers the current plan asks for, dropping anything stale or unknown. */
-export function cleanStage2(kind: Kind, a: Stage2Answers): Stage2Answers {
-  const keep = ['as_of', 'started_year', 'started_month', ...fieldsFor(kind, a).map((f) => f.id)];
-  return Object.fromEntries(keep.filter((k) => a[k] !== undefined).map((k) => [k, a[k]]));
-}
-
-export function stage2Complete(kind: Kind, a: Stage2Answers): boolean {
-  if (!planFor(a)) return false;
-  return fieldsFor(kind, a).every((f) => {
-    const v = a[f.id];
-    if (f.kind === 'choice') return f.options!.some((o) => o.value === v);
-    return typeof v === 'number' && Number.isFinite(v) && (f.allowNegative || v >= 0) && (f.max === undefined || v <= f.max);
+  return forms.s2[kind].map((s) => {
+    const fields = s.fields.flatMap((f): FieldDef[] => {
+      if (f.kind === 'revenue') return plan ? plan.periods.map((p) => ({ id: p.id, kind: 'money', unit, label: p.label })) : [];
+      // The earnings question names the period it covers, so it waits for the start date.
+      if (f.id === EARNINGS_ID[kind]) return plan ? [{ ...f, label: { en: `${f.label.en}, ${plan.earnings.label.en}`, pt: `${f.label.pt}, ${plan.earnings.label.pt}` } }] : [];
+      return [f];
+    });
+    const numeric = fields.filter((f) => f.kind === 'money' || f.kind === 'number').length;
+    return { id: s.id, title: s.title, hint: s.hint, cols: numeric > 0 && numeric % 3 === 0 ? 3 : 2, fields, awaitsStart: !plan && s.fields.some((f) => f.kind === 'revenue') };
   });
 }
 
-type Add = (id: string, label: L, value: string, grade: Grade, notes: Record<Grade, L>) => void;
+/** The questions to ask, given when the business started. Without a valid start the dated ones are left out. */
+export function fieldsFor(kind: Kind, a: Stage2Answers, forms: Forms): FieldDef[] {
+  return sectionsFor(kind, a, forms).flatMap((s) => s.fields);
+}
+
+/** Keeps only the answers the current form asks for, dropping anything stale or unknown. */
+export function cleanStage2(kind: Kind, a: Stage2Answers, forms: Forms): Stage2Answers {
+  const keep = ['as_of', 'started_year', 'started_month', ...fieldsFor(kind, a, forms).map((f) => f.id)];
+  return Object.fromEntries(keep.filter((k) => a[k] !== undefined && a[k] !== '').map((k) => [k, a[k]]));
+}
+
+export const TEXT_MAX = 500;
+const NUMBER_MAX = 1e12;
+
+function validAnswer(f: FieldDef, v: number | string | undefined): boolean {
+  if (v === undefined || v === '') return !!f.optional;
+  if (f.kind === 'choice') return f.options!.some((o) => o.value === v);
+  if (f.kind === 'text') return typeof v === 'string' && v.trim().length > 0 && v.length <= TEXT_MAX;
+  return typeof v === 'number' && Number.isFinite(v) && (f.allowNegative || v >= 0) && Math.abs(v) <= (f.max ?? NUMBER_MAX);
+}
+
+export function stage2Complete(kind: Kind, a: Stage2Answers, forms: Forms): boolean {
+  if (!planFor(a)) return false;
+  return fieldsFor(kind, a, forms).every((f) => validAnswer(f, a[f.id]));
+}
+
+type Add = (id: string, value: string, grade: Grade, notes: Record<Grade, L>) => void;
+/** Whether every question a result needs is still on the form. */
+type On = (id: string) => boolean;
 
 type Basis = {
   /** Revenue per period, oldest first, scaled to a full year. */
@@ -924,10 +950,9 @@ function basisFor(a: Stage2Answers): Basis {
 
 /** Compound annual growth across the periods reported; two straight declines are weak. */
 function revenueTrend(add: Add, rev: number[]) {
-  const label = { en: 'Revenue trend', pt: 'Tendência de faturamento' };
   if (rev.length < 2) {
     const note = { en: 'Too new to show a trend.', pt: 'Recente demais para mostrar tendência.' };
-    add('rev_trend', label, 'n/a', 'ok', { good: note, ok: note, weak: note });
+    add('rev_trend', 'n/a', 'ok', { good: note, ok: note, weak: note });
     return;
   }
   const first = rev[0];
@@ -935,7 +960,7 @@ function revenueTrend(add: Add, rev: number[]) {
   const growth = first > 0 && last > 0 ? Math.pow(last / first, 1 / (rev.length - 1)) - 1 : last > first ? 1 : -1;
   const twoDeclines = rev.length === 3 && rev[1] < rev[0] && rev[2] < rev[1];
   const grade: Grade = twoDeclines || growth < -0.05 ? 'weak' : growth >= 0.05 ? 'good' : 'ok';
-  add('rev_trend', label, `${pct(growth, true)}/yr`, grade, {
+  add('rev_trend', `${pct(growth, true)}/yr`, grade, {
     good: { en: 'Growing year over year.', pt: 'Crescendo ano a ano.' },
     ok: { en: 'Roughly flat.', pt: 'Praticamente estável.' },
     weak: twoDeclines
@@ -944,103 +969,103 @@ function revenueTrend(add: Add, rev: number[]) {
   });
 }
 
-function scoreUs(a: Record<string, number>, basis: Basis, reason: string, sellerNote: string, add: Add) {
+function scoreUs(a: Record<string, number>, basis: Basis, reason: string, sellerNote: string, add: Add, on: On) {
   const { price, employees, lease_years, owner_hours, top_customer_pct, debt } = a;
   const periodRevenue = basis.earningsRevenue;
   // Earnings for a partial period are scaled to a full year before they are compared with price, salary and debt.
   const sde = (a.sde * 12) / basis.earningsMonths;
 
   revenueTrend(add, basis.revenue);
-  {
+  if (on('margin')) {
     const margin = periodRevenue > 0 ? a.sde / periodRevenue : -1;
     const grade: Grade = margin >= 0.15 ? 'good' : margin >= 0.08 ? 'ok' : 'weak';
-    add('margin', { en: 'Earnings margin', pt: 'Margem de lucro' }, periodRevenue > 0 ? pct(margin) : 'n/a', grade, {
+    add('margin', periodRevenue > 0 ? pct(margin) : 'n/a', grade, {
       good: { en: 'Solid earnings for the revenue.', pt: 'Lucro sólido para o faturamento.' },
       ok: { en: 'Thin but positive.', pt: 'Baixa, mas positiva.' },
       weak: { en: 'Little or no earnings.', pt: 'Pouco ou nenhum lucro.' },
     });
   }
-  {
+  if (on('multiple')) {
     const mult = sde > 0 ? price / sde : Infinity;
     const grade: Grade = mult <= PARAMS.priceMultipleGood ? 'good' : mult <= PARAMS.priceMultipleOk ? 'ok' : 'weak';
-    add('multiple', { en: 'Price ÷ earnings', pt: 'Preço ÷ lucro' }, Number.isFinite(mult) ? `${mult.toFixed(1)}×` : 'n/a', grade, {
+    add('multiple', Number.isFinite(mult) ? `${mult.toFixed(1)}×` : 'n/a', grade, {
       good: { en: 'Within the usual range for small businesses.', pt: 'Dentro da faixa usual para pequenos negócios.' },
       ok: { en: 'On the high side. Needs a reason.', pt: 'No limite superior. Precisa de justificativa.' },
       weak: { en: 'Priced above what earnings support.', pt: 'Preço acima do que o lucro sustenta.' },
     });
   }
-  {
+  if (on('salary')) {
     const residual = sde - PARAMS.managerSalaryUsd;
     const grade: Grade = sde > 0 && residual >= PARAMS.residualMinPctOfEarnings * sde ? 'good' : residual >= 0 ? 'ok' : 'weak';
-    add('salary', { en: 'After a manager salary', pt: 'Após salário de gerente' }, usd(residual), grade, {
+    add('salary', usd(residual), grade, {
       good: { en: 'Earnings pay the L-1 manager and leave a margin.', pt: 'O lucro paga o gerente L-1 e deixa margem.' },
       ok: { en: 'Earnings barely cover a manager salary.', pt: 'O lucro mal cobre o salário de um gerente.' },
       weak: { en: 'Earnings cannot pay a manager salary.', pt: 'O lucro não paga o salário de um gerente.' },
     });
   }
-  {
+  if (on('return')) {
     const ret = price > 0 ? (sde - PARAMS.managerSalaryUsd) / price : -1;
     const grade: Grade = ret >= PARAMS.returnGood ? 'good' : ret >= PARAMS.returnOk ? 'ok' : 'weak';
-    add('return', { en: 'Return on price', pt: 'Retorno sobre o preço' }, price > 0 ? `${pct(ret)}/yr` : 'n/a', grade, {
+    add('return', price > 0 ? `${pct(ret)}/yr` : 'n/a', grade, {
       good: { en: 'A strong yearly return after paying a manager.', pt: 'Retorno anual forte depois de pagar um gerente.' },
       ok: { en: 'A modest return after paying a manager.', pt: 'Retorno modesto depois de pagar um gerente.' },
       weak: { en: 'Too little is left for the buyer at this price.', pt: 'Sobra pouco para o comprador a este preço.' },
     });
   }
-  {
+  if (on('debt')) {
     const ratio = debt <= 0 ? 0 : sde > 0 ? debt / sde : Infinity;
     const grade: Grade = ratio <= PARAMS.debtToEarningsGood ? 'good' : ratio <= PARAMS.debtToEarningsOk ? 'ok' : 'weak';
-    add('debt', { en: 'Debt load', pt: 'Endividamento' }, Number.isFinite(ratio) ? `${ratio.toFixed(1)}× earnings` : 'n/a', grade, {
+    add('debt', Number.isFinite(ratio) ? `${ratio.toFixed(1)}× earnings` : 'n/a', grade, {
       good: { en: 'Little or no debt passes to the buyer.', pt: 'Pouca ou nenhuma dívida passa ao comprador.' },
       ok: { en: 'Debt stays with the company in a sale. It should be paid off at closing or priced in.', pt: 'A dívida fica com a empresa na venda. Deve ser quitada no fechamento ou descontada do preço.' },
       weak: { en: 'Debt is heavy against earnings and must be cleared at closing.', pt: 'A dívida é alta frente ao lucro e precisa ser quitada no fechamento.' },
     });
   }
-  {
+  if (on('team')) {
     const grade: Grade = employees >= 6 ? 'good' : employees >= 3 ? 'ok' : 'weak';
-    add('team', { en: 'Team', pt: 'Equipe' }, `${employees} W-2`, grade, {
+    add('team', `${employees} W-2`, grade, {
       good: { en: 'Enough staff for a managerial role.', pt: 'Equipe suficiente para um cargo gerencial.' },
       ok: { en: 'Small team. A supervisor hire may be needed.', pt: 'Equipe pequena. Pode ser preciso contratar um supervisor.' },
       weak: { en: 'Too few employees to manage.', pt: 'Poucos funcionários para gerenciar.' },
     });
   }
-  {
+  if (on('lease')) {
     const grade: Grade = lease_years >= 3 ? 'good' : lease_years >= 1 ? 'ok' : 'weak';
-    add('lease', { en: 'Lease', pt: 'Aluguel' }, `${lease_years} yr`, grade, {
+    add('lease', `${lease_years} yr`, grade, {
       good: { en: 'Premises secured for the first L-1 period.', pt: 'Local garantido para o primeiro período do L-1.' },
       ok: { en: 'A lease extension should be a closing condition.', pt: 'A extensão do aluguel deve ser condição de fechamento.' },
       weak: { en: 'Under one year left on the lease.', pt: 'Menos de um ano de aluguel restante.' },
     });
   }
-  {
+  if (on('owner')) {
     const grade: Grade = owner_hours <= 25 ? 'good' : owner_hours <= 45 ? 'ok' : 'weak';
-    add('owner', { en: 'Owner dependence', pt: 'Dependência do dono' }, `${owner_hours} h/wk`, grade, {
+    add('owner', `${owner_hours} h/wk`, grade, {
       good: { en: 'Runs largely without the owner.', pt: 'Funciona em grande parte sem o dono.' },
       ok: { en: 'The owner works a full week in the business.', pt: 'O dono trabalha uma semana cheia no negócio.' },
       weak: { en: 'The business leans heavily on the owner.', pt: 'O negócio depende muito do dono.' },
     });
   }
-  {
+  if (on('concentration')) {
     const grade: Grade = top_customer_pct <= 20 ? 'good' : top_customer_pct <= 30 ? 'ok' : 'weak';
-    add('concentration', { en: 'Largest customer', pt: 'Maior cliente' }, `${top_customer_pct}%`, grade, {
+    add('concentration', `${top_customer_pct}%`, grade, {
       good: { en: 'Revenue is spread across customers.', pt: 'Faturamento distribuído entre clientes.' },
       ok: { en: 'One customer carries a notable share.', pt: 'Um cliente responde por parcela relevante.' },
       weak: { en: 'Losing one customer would hurt badly.', pt: 'Perder um cliente causaria grande impacto.' },
     });
   }
-  {
+  if (on('reason')) {
     const grade: Grade = reason === 'declining' ? 'weak' : 'good';
     const text: Record<string, string> = { retirement: 'Retirement', new_venture: 'New venture', personal: 'Personal', declining: 'Declining' };
-    add('reason', { en: 'Reason for sale', pt: 'Motivo da venda' }, text[reason] ?? reason, grade, {
+    add('reason', text[reason] ?? reason, grade, {
       good: { en: 'Unrelated to how the business performs.', pt: 'Sem relação com o desempenho do negócio.' },
       ok: { en: '', pt: '' },
       weak: { en: 'The owner is selling because the business is declining.', pt: 'O dono vende porque o negócio está em queda.' },
     });
   }
-  {
+  if (on('financing')) {
     const grade: Grade = sellerNote === 'yes20' ? 'good' : 'ok';
     const text: Record<string, string> = { yes20: '20%+', some: 'Under 20%', none: 'Cash only' };
-    add('financing', { en: 'Seller financing', pt: 'Financiamento do vendedor' }, text[sellerNote] ?? sellerNote, grade, {
+    add('financing', text[sellerNote] ?? sellerNote, grade, {
       good: { en: 'Widens the pool of international buyers, who cannot use SBA loans.', pt: 'Amplia o número de compradores internacionais, que não podem usar empréstimos SBA.' },
       ok:
         sellerNote === 'none'
@@ -1051,56 +1076,56 @@ function scoreUs(a: Record<string, number>, basis: Basis, reason: string, seller
   }
 }
 
-function scoreBr(a: Record<string, number>, basis: Basis, tax: string, add: Add) {
+function scoreBr(a: Record<string, number>, basis: Basis, tax: string, add: Add, on: On) {
   const { cash, debt, invest_usd } = a;
   const periodRevenue = basis.earningsRevenue;
   const monthlyCosts = Math.max(periodRevenue - a.profit, 0) / basis.earningsMonths;
   const profit = (a.profit * 12) / basis.earningsMonths;
 
   revenueTrend(add, basis.revenue);
-  {
+  if (on('margin')) {
     const margin = periodRevenue > 0 ? a.profit / periodRevenue : -1;
     const grade: Grade = margin >= 0.1 ? 'good' : margin >= 0.03 ? 'ok' : 'weak';
-    add('margin', { en: 'Net margin', pt: 'Margem líquida' }, periodRevenue > 0 ? pct(margin) : 'n/a', grade, {
+    add('margin', periodRevenue > 0 ? pct(margin) : 'n/a', grade, {
       good: { en: 'Solidly profitable.', pt: 'Lucratividade sólida.' },
       ok: { en: 'Thin but positive.', pt: 'Baixa, mas positiva.' },
       weak: { en: 'Little or no profit to support an acquisition.', pt: 'Pouco ou nenhum lucro para sustentar uma aquisição.' },
     });
   }
-  {
+  if (on('runway')) {
     // Months of operating costs covered by cash.
     const months = monthlyCosts > 0 ? cash / monthlyCosts : cash > 0 ? 99 : 0;
     const grade: Grade = months >= 3 ? 'good' : months >= 1 ? 'ok' : 'weak';
-    add('runway', { en: 'Cash runway', pt: 'Fôlego de caixa' }, `${months >= 12 ? '12+' : months.toFixed(1)} mo`, grade, {
+    add('runway', `${months >= 12 ? '12+' : months.toFixed(1)} mo`, grade, {
       good: { en: 'Covers three months of costs or more.', pt: 'Cobre três meses de custos ou mais.' },
       ok: { en: 'Covers one to three months of costs.', pt: 'Cobre de um a três meses de custos.' },
       weak: { en: 'Under one month of costs in cash.', pt: 'Menos de um mês de custos em caixa.' },
     });
   }
-  {
+  if (on('debt')) {
     // Years of profit needed to repay debt.
     const years = debt <= 0 ? 0 : profit > 0 ? debt / profit : Infinity;
     const grade: Grade = years <= 2 ? 'good' : years <= 4 ? 'ok' : 'weak';
-    add('debt', { en: 'Debt load', pt: 'Endividamento' }, Number.isFinite(years) ? `${years.toFixed(1)}× profit` : 'n/a', grade, {
+    add('debt', Number.isFinite(years) ? `${years.toFixed(1)}× profit` : 'n/a', grade, {
       good: { en: 'Light or no debt.', pt: 'Pouca ou nenhuma dívida.' },
       ok: { en: 'Manageable debt.', pt: 'Dívida administrável.' },
       weak: { en: 'Debt is heavy relative to profit.', pt: 'Dívida alta em relação ao lucro.' },
     });
   }
-  {
+  if (on('tax')) {
     const grade: Grade = tax === 'good' ? 'good' : tax === 'plan' ? 'ok' : 'weak';
-    add('tax', { en: 'Tax standing', pt: 'Situação fiscal' }, { good: 'Current', plan: 'Payment plan', issues: 'Overdue' }[tax] ?? tax, grade, {
+    add('tax', { good: 'Current', plan: 'Payment plan', issues: 'Overdue' }[tax] ?? tax, grade, {
       good: { en: 'Clearance certificates should be easy to obtain.', pt: 'As certidões devem sair sem dificuldade.' },
       ok: { en: 'Acceptable while the plan is kept current.', pt: 'Aceitável enquanto o parcelamento estiver em dia.' },
       weak: { en: 'Regularize before filing.', pt: 'Regularizar antes do protocolo.' },
     });
   }
-  {
+  if (on('capacity')) {
     // What the company can send and still pay its own bills, at a stressed exchange rate.
     const reserve = monthlyCosts * PARAMS.brReserveMonths;
     const capacity = Math.max(cash - reserve - Math.max(debt, 0), 0) / (PARAMS.brlPerUsd * (1 + PARAMS.fxStressPct));
     const grade: Grade = capacity >= invest_usd && invest_usd > 0 ? 'good' : capacity > 0 ? 'ok' : 'weak';
-    add('capacity', { en: 'Company can fund', pt: 'A empresa consegue aportar' }, usd(capacity), grade, {
+    add('capacity', usd(capacity), grade, {
       good: { en: 'The company can fund the planned investment and keep a reserve.', pt: 'A empresa consegue aportar o investimento planejado e manter uma reserva.' },
       ok: {
         en: 'The company covers only part of the planned investment. The rest would be personal funds, which the attorney must document.',
@@ -1112,9 +1137,9 @@ function scoreBr(a: Record<string, number>, basis: Basis, tax: string, add: Add)
       },
     });
   }
-  {
+  if (on('funding')) {
     const grade: Grade = invest_usd >= PARAMS.fundsGoodUsd ? 'good' : invest_usd >= PARAMS.fundsOkUsd ? 'ok' : 'weak';
-    add('funding', { en: 'Funds to invest', pt: 'Recursos para investir' }, usd(invest_usd), grade, {
+    add('funding', usd(invest_usd), grade, {
       good: { en: 'Enough to buy and run a staffed U.S. business.', pt: 'Suficiente para comprar e operar um negócio com equipe nos EUA.' },
       ok: { en: 'Limits the choice of businesses. SBA loans are not available to L-1 buyers.', pt: 'Limita as opções de negócios. Empréstimos SBA não estão disponíveis para compradores L-1.' },
       weak: { en: 'Likely too little for a business that supports L-1.', pt: 'Provavelmente insuficiente para um negócio que sustente o L-1.' },
@@ -1122,21 +1147,36 @@ function scoreBr(a: Record<string, number>, basis: Basis, tax: string, add: Add)
   }
 }
 
-export function scoreStage2(kind: Kind, a: Stage2Answers): Stage2Result {
-  if (!stage2Complete(kind, a)) throw new Error('Incomplete numbers');
+export function scoreStage2(kind: Kind, a: Stage2Answers, forms: Forms): Stage2Result {
+  if (!stage2Complete(kind, a, forms)) throw new Error('Incomplete numbers');
   const metrics: Metric[] = [];
-  const add: Add = (id, label, value, grade, notes) => metrics.push({ id, label, value, grade, note: notes[grade] });
+  const asked = forms.s2[kind].flatMap((s) => s.fields);
+  const on: On = (id) => METRICS[kind].find((m) => m.id === id)!.needs.every((f) => asked.some((x) => x.id === f));
+  const add: Add = (id, value, grade, notes) => metrics.push({ id, label: METRICS[kind].find((m) => m.id === id)!.label, value, grade, note: notes[grade] });
   const nums = a as Record<string, number>;
   const basis = basisFor(a);
-  if (kind === 'us') scoreUs(nums, basis, String(a.sale_reason), String(a.seller_note), add);
-  else scoreBr(nums, basis, String(a.tax_status), add);
+  if (kind === 'us') scoreUs(nums, basis, String(a.sale_reason), String(a.seller_note), add, on);
+  else scoreBr(nums, basis, String(a.tax_status), add, on);
+
+  // Questions the team added: a graded choice counts like any other result, the rest are passed along as answered.
+  const extra: Extra[] = [];
+  const none: L = { en: '', pt: '' };
+  for (const f of asked) {
+    if (isBuiltin(kind, f.id)) continue;
+    const v = a[f.id];
+    if (v === undefined || v === '') continue;
+    const opt = f.kind === 'choice' ? f.options!.find((o) => o.value === v) : undefined;
+    if (opt?.grade) metrics.push({ id: f.id, label: f.label, value: opt.label.en, valueL: opt.label, grade: opt.grade, note: opt.note ?? none });
+    else if (opt) extra.push({ id: f.id, label: f.label, value: opt.label.en, valueL: opt.label });
+    else extra.push({ id: f.id, label: f.label, value: typeof v === 'number' ? `${f.kind === 'money' && f.unit ? `${f.unit} ` : ''}${v.toLocaleString('en-US')}${f.unit === '%' ? '%' : ''}` : String(v) });
+  }
 
   const points = metrics.reduce((s, x) => s + (x.grade === 'good' ? 2 : x.grade === 'ok' ? 1 : 0), 0);
   const ratio = points / (metrics.length * 2);
   const weak = metrics.filter((x) => x.grade === 'weak').length;
   const rating: Stage2Rating =
     weak === 0 && ratio >= PARAMS.healthyMinPct ? 'healthy' : weak <= PARAMS.watchMaxWeak && ratio >= PARAMS.watchMinPct ? 'watch' : 'weak';
-  return { rating, passed: rating !== 'weak', score: Math.round(ratio * 100), metrics };
+  return { rating, passed: rating !== 'weak', score: Math.round(ratio * 100), metrics, ...(extra.length ? { extra } : {}) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1144,21 +1184,23 @@ export function scoreStage2(kind: Kind, a: Stage2Answers): Stage2Result {
 /* ------------------------------------------------------------------ */
 
 export type Owner = { name: string; pct: number; role: string };
-export type Stage4Answers = { owners: Owner[]; disclosures: Record<string, string> };
+export type Disclosure = { id: string; label: L };
+/** `asked` keeps the wording of the questions as they were when answered. */
+export type Stage4Answers = { owners: Owner[]; disclosures: Record<string, string>; asked?: Disclosure[] };
 
 /** Answered about the business and every owner. A "yes" is flagged for the team, not an automatic stop. */
-export const DISCLOSURES: { id: string; label: L }[] = [
+const DISCLOSURES: Disclosure[] = [
   { id: 'lawsuits', label: { en: 'Any lawsuit pending against the business or an owner?', pt: 'Há processo judicial em andamento contra a empresa ou um sócio?' } },
   { id: 'tax_liens', label: { en: 'Any unpaid taxes, liens or judgments?', pt: 'Há impostos não pagos, ônus ou condenações?' } },
   { id: 'bankruptcy', label: { en: 'Has any owner filed for bankruptcy in the last seven years?', pt: 'Algum sócio pediu falência ou recuperação nos últimos sete anos?' } },
   { id: 'criminal', label: { en: 'Has any owner been convicted of a crime?', pt: 'Algum sócio já foi condenado por crime?' } },
 ];
 
-export function stage4Complete(a: Stage4Answers | null | undefined): boolean {
+export function stage4Complete(a: Stage4Answers | null | undefined, forms: Forms): boolean {
   if (!a || !Array.isArray(a.owners) || a.owners.length === 0) return false;
   const ownersOk = a.owners.every((o) => o.name.trim().length >= 2 && Number.isFinite(o.pct) && o.pct > 0 && o.pct <= 100);
   const total = a.owners.reduce((s, o) => s + o.pct, 0);
-  return ownersOk && total <= 100.01 && DISCLOSURES.every((d) => a.disclosures?.[d.id] === 'yes' || a.disclosures?.[d.id] === 'no');
+  return ownersOk && total <= 100.01 && forms.s4.every((d) => a.disclosures?.[d.id] === 'yes' || a.disclosures?.[d.id] === 'no');
 }
 
 /* ------------------------------------------------------------------ */
@@ -1174,3 +1216,202 @@ export const STATUS: Record<Status, L> = {
   approved: { en: 'Approved', pt: 'Aprovado' },
   declined: { en: 'Declined', pt: 'Recusado' },
 };
+
+/* ------------------------------------------------------------------ */
+/* Forms: the questionnaires, as shipped and as the team edits them    */
+/* ------------------------------------------------------------------ */
+
+export type Forms = { s1: Record<Kind, ChoiceQuestion[]>; s2: Record<Kind, Section[]>; s4: Disclosure[] };
+export type FormKey = 's1_us' | 's1_br' | 's2_us' | 's2_br' | 's4';
+export type FormBody = ChoiceQuestion[] | Section[] | Disclosure[];
+export const FORM_KEYS: FormKey[] = ['s1_us', 's1_br', 's2_us', 's2_br', 's4'];
+export const FORM_TITLES: Record<FormKey, L> = {
+  s1_us: { en: 'L-1 screen · U.S. business', pt: 'Triagem L-1 · Negócio nos EUA' },
+  s1_br: { en: 'L-1 screen · Candidate', pt: 'Triagem L-1 · Candidato' },
+  s2_us: { en: 'Business health · U.S. business', pt: 'Saúde do negócio · Negócio nos EUA' },
+  s2_br: { en: 'Business health · Candidate', pt: 'Saúde do negócio · Candidato' },
+  s4: { en: 'Disclosures · both tracks', pt: 'Declarações · as duas trilhas' },
+};
+
+const builtin = (kind: Kind, ids: string[]) => ids.map((id) => BUILTIN_FIELDS[kind].find((f) => f.id === id)!);
+export const isBuiltin = (kind: Kind, id: string) => BUILTIN_FIELDS[kind].some((f) => f.id === id);
+
+export const DEFAULT_FORMS: Forms = {
+  s1: { us: US_QUESTIONS, br: BR_QUESTIONS },
+  s2: {
+    us: [
+      { id: 'revenue', title: { en: 'Revenue', pt: 'Faturamento' }, hint: { en: 'Total sales in each period.', pt: 'Total de vendas em cada período.' }, fields: builtin('us', ['revenue']) },
+      { id: 'earnings', title: { en: 'Earnings and debt', pt: 'Lucro e dívida' }, fields: builtin('us', ['sde', 'debt']) },
+      { id: 'team', title: { en: 'Team and operations', pt: 'Equipe e operação' }, fields: builtin('us', ['employees', 'owner_hours', 'top_customer_pct', 'lease_years']) },
+      { id: 'sale', title: { en: 'The sale', pt: 'A venda' }, fields: builtin('us', ['price', 'seller_note', 'sale_reason']) },
+    ],
+    br: [
+      { id: 'revenue', title: { en: 'Revenue', pt: 'Faturamento' }, hint: { en: 'Total sales in each period, in reais.', pt: 'Total de vendas em cada período, em reais.' }, fields: builtin('br', ['revenue']) },
+      { id: 'profit', title: { en: 'Profit, cash and debt', pt: 'Lucro, caixa e dívida' }, fields: builtin('br', ['profit', 'cash', 'debt']) },
+      { id: 'taxes', title: { en: 'Taxes', pt: 'Impostos' }, fields: builtin('br', ['tax_status']) },
+      { id: 'investment', title: { en: 'Your investment', pt: 'Seu investimento' }, fields: builtin('br', ['invest_usd']) },
+    ],
+  },
+  s4: DISCLOSURES,
+};
+
+const kindOf = (key: FormKey): Kind => (key.endsWith('_br') ? 'br' : 'us');
+export function getForm(forms: Forms, key: FormKey): FormBody {
+  return key === 's4' ? forms.s4 : key.startsWith('s1') ? forms.s1[kindOf(key)] : forms.s2[kindOf(key)];
+}
+function withForm(forms: Forms, key: FormKey, body: FormBody): Forms {
+  if (key === 's4') return { ...forms, s4: body as Disclosure[] };
+  if (key.startsWith('s1')) return { ...forms, s1: { ...forms.s1, [kindOf(key)]: body as ChoiceQuestion[] } };
+  return { ...forms, s2: { ...forms.s2, [kindOf(key)]: body as Section[] } };
+}
+
+export const LIMITS = { label: 300, note: 600, questions: 30, options: 8, sections: 12, fields: 40, disclosures: 20 };
+const LEVELS: Level[] = ['pass', 'caution', 'fail'];
+const GRADES: Grade[] = ['good', 'ok', 'weak'];
+const CUSTOM_KINDS = ['money', 'number', 'choice', 'text'] as const;
+
+type Raw = Record<string, unknown>;
+const str = (x: unknown, max: number) => (typeof x === 'string' ? x.trim().slice(0, max) : '');
+const items = (x: unknown, max: number): Raw[] => (Array.isArray(x) ? (x.filter((i) => i && typeof i === 'object') as Raw[]).slice(0, max + 1) : []);
+/** Portuguese falls back to the English text when left blank. */
+const loc = (x: unknown, max = LIMITS.label): L => {
+  const o = (x && typeof x === 'object' ? x : {}) as Raw;
+  const en = str(o.en, max);
+  return { en, pt: str(o.pt, max) || en };
+};
+const optional = <K extends string>(key: K, x: unknown, max = LIMITS.note): { [P in K]?: L } => {
+  const l = loc(x, max);
+  return (l.en ? { [key]: l } : {}) as { [P in K]?: L };
+};
+
+/**
+ * Rebuilds a form from untrusted input, keeping only what the form can hold. For the built-in health
+ * questions the type, unit and option values always come from the code; only their wording is taken.
+ */
+export function canonicalForm(key: FormKey, raw: unknown): FormBody {
+  if (key === 's4') return items(raw, LIMITS.disclosures).map((d): Disclosure => ({ id: str(d.id, 40), label: loc(d.label) }));
+  if (key.startsWith('s1')) {
+    return items(raw, LIMITS.questions).map(
+      (q): ChoiceQuestion => ({
+        id: str(q.id, 40),
+        req: loc(q.req),
+        label: loc(q.label),
+        ...optional('help', q.help),
+        options: items(q.options, LIMITS.options).map(
+          (o): Option => ({ value: str(o.value, 40), label: loc(o.label), level: LEVELS.includes(o.level as Level) ? (o.level as Level) : 'caution', ...optional('note', o.note) }),
+        ),
+      }),
+    );
+  }
+  const kind = kindOf(key);
+  return items(raw, LIMITS.sections).map(
+    (s): Section => ({
+      id: str(s.id, 40),
+      title: loc(s.title),
+      ...optional('hint', s.hint),
+      fields: items(s.fields, LIMITS.fields).map((f): FieldDef => {
+        const id = str(f.id, 40);
+        const base = BUILTIN_FIELDS[kind].find((b) => b.id === id);
+        if (base?.kind === 'revenue') return base;
+        if (base) {
+          const given = items(f.options, LIMITS.options);
+          const { help: _help, ...fixed } = base;
+          return {
+            ...fixed,
+            label: loc(f.label),
+            ...optional('help', f.help),
+            ...(base.options ? { options: base.options.map((o) => ({ ...o, label: loc(given.find((g) => g.value === o.value)?.label) })) } : {}),
+          };
+        }
+        const kindIn = CUSTOM_KINDS.includes(f.kind as (typeof CUSTOM_KINDS)[number]) ? (f.kind as (typeof CUSTOM_KINDS)[number]) : 'text';
+        const unit = kindIn === 'money' ? (f.unit === 'USD' || f.unit === 'BRL' ? f.unit : kind === 'us' ? 'USD' : 'BRL') : kindIn === 'number' && f.unit === '%' ? '%' : undefined;
+        return {
+          id,
+          kind: kindIn,
+          label: loc(f.label),
+          ...optional('help', f.help),
+          ...(unit ? { unit } : {}),
+          ...(unit === '%' ? { max: 100 } : {}),
+          ...(f.optional === true ? { optional: true } : {}),
+          ...(kindIn === 'choice'
+            ? {
+                options: items(f.options, LIMITS.options).map(
+                  (o): FieldOption => ({ value: str(o.value, 40), label: loc(o.label), ...(GRADES.includes(o.grade as Grade) ? { grade: o.grade as Grade } : {}), ...optional('note', o.note) }),
+                ),
+              }
+            : {}),
+        };
+      }),
+    }),
+  );
+}
+
+const ID = /^[a-z0-9_]{1,40}$/;
+const CUSTOM_ID = /^x_[a-z0-9]{4,20}$/;
+const unique = (ids: string[]) => new Set(ids).size === ids.length;
+const said = (en: string, pt: string): L => ({ en, pt });
+
+/** What stops a form from being saved, or null. Expects the output of `canonicalForm`. */
+export function formProblem(key: FormKey, body: FormBody): L | null {
+  if (key === 's4') {
+    const list = body as Disclosure[];
+    if (list.length > LIMITS.disclosures) return said(`Keep it to ${LIMITS.disclosures} questions.`, `Use no máximo ${LIMITS.disclosures} perguntas.`);
+    if (!unique(list.map((d) => d.id)) || list.some((d) => !ID.test(d.id))) return said('Two questions share an identifier. Reload and try again.', 'Duas perguntas têm o mesmo identificador. Recarregue e tente de novo.');
+    const blank = list.findIndex((d) => !d.label.en);
+    return blank >= 0 ? said(`Question ${blank + 1} needs its text in English.`, `A pergunta ${blank + 1} precisa do texto em inglês.`) : null;
+  }
+  if (key.startsWith('s1')) {
+    const qs = body as ChoiceQuestion[];
+    if (qs.length === 0) return said('Add at least one question.', 'Adicione pelo menos uma pergunta.');
+    if (qs.length > LIMITS.questions) return said(`Keep it to ${LIMITS.questions} questions.`, `Use no máximo ${LIMITS.questions} perguntas.`);
+    if (!unique(qs.map((q) => q.id)) || qs.some((q) => !ID.test(q.id))) return said('Two questions share an identifier. Reload and try again.', 'Duas perguntas têm o mesmo identificador. Recarregue e tente de novo.');
+    for (const [i, q] of qs.entries()) {
+      const n = i + 1;
+      if (!q.label.en) return said(`Question ${n} needs its text in English.`, `A pergunta ${n} precisa do texto em inglês.`);
+      if (!q.req.en) return said(`Question ${n} needs a requirement name in English. It heads the row on the scorecard.`, `A pergunta ${n} precisa do nome do requisito em inglês. Ele aparece no scorecard.`);
+      if (q.options.length < 2) return said(`Question ${n} needs at least two answers.`, `A pergunta ${n} precisa de pelo menos duas respostas.`);
+      if (q.options.length > LIMITS.options) return said(`Question ${n} can have ${LIMITS.options} answers at most.`, `A pergunta ${n} pode ter no máximo ${LIMITS.options} respostas.`);
+      if (!unique(q.options.map((o) => o.value)) || q.options.some((o) => !ID.test(o.value))) return said(`Two answers to question ${n} share an identifier. Reload and try again.`, `Duas respostas da pergunta ${n} têm o mesmo identificador. Recarregue e tente de novo.`);
+      if (q.options.some((o) => !o.label.en)) return said(`Every answer to question ${n} needs its text in English.`, `Toda resposta da pergunta ${n} precisa do texto em inglês.`);
+      if (q.options.every((o) => o.level === 'fail')) return said(`Every answer to question ${n} is “Not met”, so nobody could pass.`, `Toda resposta da pergunta ${n} é “Não atendido”, então ninguém passaria.`);
+    }
+    return null;
+  }
+  const kind = kindOf(key);
+  const sections = body as Section[];
+  const fields = sections.flatMap((s) => s.fields);
+  if (sections.length === 0) return said('Add at least one section.', 'Adicione pelo menos uma seção.');
+  if (sections.length > LIMITS.sections) return said(`Keep it to ${LIMITS.sections} sections.`, `Use no máximo ${LIMITS.sections} seções.`);
+  if (fields.length > LIMITS.fields) return said(`Keep it to ${LIMITS.fields} questions.`, `Use no máximo ${LIMITS.fields} perguntas.`);
+  if (!unique(sections.map((s) => s.id)) || sections.some((s) => !ID.test(s.id)) || !unique(fields.map((f) => f.id))) {
+    return said('Two items share an identifier. Reload and try again.', 'Dois itens têm o mesmo identificador. Recarregue e tente de novo.');
+  }
+  if (fields.filter((f) => f.kind === 'revenue').length !== 1) return said('The revenue questions must stay on the form.', 'As perguntas de faturamento precisam ficar no formulário.');
+  for (const s of sections) {
+    const name = s.title.en || 'A section';
+    if (!s.title.en) return said('Every section needs a title in English.', 'Toda seção precisa de um título em inglês.');
+    if (s.fields.length === 0) return said(`“${name}” has no questions. Add one or remove the section.`, `“${s.title.pt}” não tem perguntas. Adicione uma ou remova a seção.`);
+    for (const f of s.fields) {
+      if (!f.label.en) return said(`A question in “${name}” needs its text in English.`, `Uma pergunta em “${s.title.pt}” precisa do texto em inglês.`);
+      if (!isBuiltin(kind, f.id) && !CUSTOM_ID.test(f.id)) return said('A question has an identifier that is not allowed. Reload and try again.', 'Uma pergunta tem um identificador não permitido. Recarregue e tente de novo.');
+      if (f.kind !== 'choice') continue;
+      const o = f.options ?? [];
+      if (o.some((x) => !x.label.en)) return said(`Every answer to “${f.label.en}” needs its text in English.`, `Toda resposta de “${f.label.pt}” precisa do texto em inglês.`);
+      if (o.length < 2) return said(`“${f.label.en}” needs at least two answers.`, `“${f.label.pt}” precisa de pelo menos duas respostas.`);
+      if (o.length > LIMITS.options) return said(`“${f.label.en}” can have ${LIMITS.options} answers at most.`, `“${f.label.pt}” pode ter no máximo ${LIMITS.options} respostas.`);
+      if (!unique(o.map((x) => x.value)) || o.some((x) => !ID.test(x.value))) return said(`Two answers to “${f.label.en}” share an identifier. Reload and try again.`, `Duas respostas de “${f.label.pt}” têm o mesmo identificador. Recarregue e tente de novo.`);
+    }
+  }
+  return null;
+}
+
+/** The forms in use: each saved edit over the shipped default. A saved form that no longer validates is ignored. */
+export function mergeForms(saved: Partial<Record<FormKey, unknown>>): Forms {
+  let forms = DEFAULT_FORMS;
+  for (const key of FORM_KEYS) {
+    if (!Array.isArray(saved[key])) continue;
+    const body = canonicalForm(key, saved[key]);
+    if (!formProblem(key, body)) forms = withForm(forms, key, body);
+  }
+  return forms;
+}

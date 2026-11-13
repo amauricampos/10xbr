@@ -2,7 +2,7 @@ import { ArrowLeft, Printer, RefreshCw, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { docsFor } from '../../shared/documents';
-import { DISCLOSURES, KINDS, LAST_STAGE, STAGE1_RATING, STAGE2_RATING, STAGES, STATUS } from '../../shared/process';
+import { KINDS, LAST_STAGE, STAGE1_RATING, STAGE2_RATING, STAGES, STATUS } from '../../shared/process';
 import { api, type AiReview, type Case } from '../api';
 import { useSession } from '../session';
 import { Chip, Disclaimer, Nav, PageLoader, Spinner, fmtDate, metricValue, s1Tone, s2Tone, statusTone, useAction } from '../ui';
@@ -139,7 +139,7 @@ export function ReviewCard({ c, reload }: { c: Case; reload: () => Promise<void>
 /* ------------------------------------------------------------------ */
 
 export function Report() {
-  const { user, t, tl, lang } = useSession();
+  const { user, t, tl, lang, forms } = useSession();
   const { id } = useParams();
   const { c, failed } = useCase(id!);
   if (!user) return <Navigate to="/signin" replace />;
@@ -264,7 +264,7 @@ export function Report() {
                 </div>
               ))}
             </dl>
-            {DISCLOSURES.map((d) => {
+            {(c.s4_answers.asked ?? forms.s4).map((d) => {
               const yes = c.s4_answers!.disclosures[d.id] === 'yes';
               return (
                 <div key={d.id} className="row between small">

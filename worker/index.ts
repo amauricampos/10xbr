@@ -21,14 +21,22 @@ import { docLabel, docsFor } from '../shared/documents';
 import { NDA_VERSION, ndaText } from '../shared/legal';
 import { mailReady, noticeEmail, scorecardEmail, sendMail } from './scorecard';
 import {
-  DISCLOSURES,
+  DEFAULT_FORMS,
+  FORM_KEYS,
   LAST_STAGE,
+  canonicalForm,
+  TEXT_MAX,
   cleanStage2,
+  formProblem,
+  getForm,
+  mergeForms,
   scoreStage1,
   scoreStage2,
   stage1Complete,
   stage2Complete,
   stage4Complete,
+  type FormKey,
+  type Forms,
   type Kind,
   type Stage1Answers,
   type Stage1Result,
@@ -111,6 +119,16 @@ function requireAdmin(c: Context<AppEnv>): User {
   return u;
 }
 
+/** The questionnaires in use: the newest saved version of each, over the shipped defaults. */
+async function loadForms(env: Env): Promise<Forms> {
+  const { results } = await env.DB.prepare('SELECT key, body FROM forms WHERE id IN (SELECT MAX(id) FROM forms GROUP BY key)').all<{ key: FormKey; body: string | null }>();
+  const saved: Partial<Record<FormKey, unknown>> = {};
+  for (const r of results) if (r.body && FORM_KEYS.includes(r.key)) saved[r.key] = parse(r.body);
+  return mergeForms(saved);
+}
+
+const QUESTIONS_CHANGED = 'The questions were updated. Reload the page and answer again.';
+
 async function rateLimit(env: Env, bucket: string, limit: number, windowSec: number): Promise<void> {
   const t = now();
   const cutoff = t - windowSec * 1000;
@@ -169,6 +187,7 @@ async function staffExists(env: Env): Promise<boolean> {
 app.get('/auth/me', async (c) => {
   return c.json({
     user: c.get('user'),
+    forms: await loadForms(c.env),
     config: {
       entity: c.env.LEGAL_ENTITY,
       openSignup: c.env.OPEN_SIGNUP === 'true',
@@ -199,8 +218,9 @@ app.post('/auth/register', async (c) => {
   let s1a: string | null = null;
   let s1r: string | null = null;
   let history = '[]';
-  if (body.s1_answers && stage1Complete(body.kind, body.s1_answers)) {
-    const result = scoreStage1(body.kind, body.s1_answers);
+  const forms = await loadForms(c.env);
+  if (body.s1_answers && stage1Complete(body.kind, body.s1_answers, forms)) {
+    const result = scoreStage1(body.kind, body.s1_answers, forms);
     s1a = JSON.stringify(body.s1_answers);
     s1r = JSON.stringify(result);
     stage = result.passed ? 2 : 1;
@@ -239,17 +259,18 @@ app.post('/leads', async (c) => {
   const body = z
     .object({ email: Email, name: Name, lang: LangZ.default('en'), kind: KindZ, s1_answers: z.record(z.string(), z.string()) })
     .parse(await c.req.json());
-  if (!stage1Complete(body.kind, body.s1_answers)) throw new HttpError(400, 'incomplete');
-  const result = scoreStage1(body.kind, body.s1_answers);
+  const forms = await loadForms(c.env);
+  if (!stage1Complete(body.kind, body.s1_answers, forms)) throw new HttpError(400, 'incomplete', QUESTIONS_CHANGED);
+  const result = scoreStage1(body.kind, body.s1_answers, forms);
   const t = now();
   const row = await c.env.DB.prepare(
-    `INSERT INTO leads (id, email, name, kind, lang, s1_answers, s1_rating, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO leads (id, email, name, kind, lang, s1_answers, s1_rating, s1_result, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (email, kind) DO UPDATE SET name = excluded.name, lang = excluded.lang,
        cleared_at = CASE WHEN leads.s1_answers = excluded.s1_answers THEN leads.cleared_at ELSE NULL END,
-       s1_answers = excluded.s1_answers, s1_rating = excluded.s1_rating, updated_at = excluded.updated_at
+       s1_answers = excluded.s1_answers, s1_rating = excluded.s1_rating, s1_result = excluded.s1_result, updated_at = excluded.updated_at
      RETURNING id`,
   )
-    .bind(randomToken(16), body.email, body.name, body.kind, body.lang, JSON.stringify(body.s1_answers), result.rating, t, t)
+    .bind(randomToken(16), body.email, body.name, body.kind, body.lang, JSON.stringify(body.s1_answers), result.rating, JSON.stringify(result), t, t)
     .first<{ id: string }>();
 
   // A recipient gets at most three scorecards a day, so the form cannot be used to flood an inbox.
@@ -285,10 +306,10 @@ app.get('/leads/:id', async (c) => {
 app.get('/leads', async (c) => {
   requireStaff(c);
   const { results } = await c.env.DB.prepare(
-    `SELECT l.id, l.email, l.name, l.kind, l.lang, l.s1_rating, l.s1_answers, l.updated_at, l.scorecard_sent_at, l.cleared_at, l.cleared_by FROM leads l
+    `SELECT l.id, l.email, l.name, l.kind, l.lang, l.s1_rating, l.s1_answers, l.s1_result, l.updated_at, l.scorecard_sent_at, l.cleared_at, l.cleared_by FROM leads l
      LEFT JOIN users u ON u.email = l.email WHERE u.id IS NULL ORDER BY l.updated_at DESC LIMIT 500`,
   ).all();
-  return c.json({ leads: results.map((l) => ({ ...l, s1_answers: parse(l.s1_answers as string) })) });
+  return c.json({ leads: results.map((l) => ({ ...l, s1_answers: parse(l.s1_answers as string), s1_result: parse(l.s1_result as string | null) })) });
 });
 
 /** The team opens the next step for a lead whose L-1 screen failed, and the lead is told by email. */
@@ -575,7 +596,7 @@ async function runReview(env: Env, caseId: string): Promise<void> {
       numbers_entered_by_owner: parse(row.s2_answers),
       health: s2 && { rating: s2.rating, metrics: s2.metrics.map((m) => ({ metric: m.label.en, value: m.value, grade: m.grade })) },
       owners: s4?.owners,
-      disclosures: s4 && DISCLOSURES.map((d) => ({ question: d.label.en, answer: s4.disclosures[d.id] })),
+      disclosures: s4 && (s4.asked ?? DEFAULT_FORMS.s4).map((d) => ({ question: d.label.en, answer: s4.disclosures[d.id] })),
       documents_missing:
         row.stage >= 3
           ? docsFor(row.kind, row.stage)
@@ -606,8 +627,9 @@ app.put('/cases/:id/stage1', async (c) => {
   // Answers are final once scored, so the gate cannot be retried until it passes. The team can override a stop.
   if (row.s1_result || row.stage > 2 || !open_(row)) throw new HttpError(409, 'stage_locked', 'This step can no longer be changed.');
   const { answers } = z.object({ answers: z.record(z.string(), z.string()) }).parse(await c.req.json());
-  if (!stage1Complete(row.kind, answers)) throw new HttpError(400, 'incomplete');
-  const result = scoreStage1(row.kind, answers as Stage1Answers);
+  const forms = await loadForms(c.env);
+  if (!stage1Complete(row.kind, answers, forms)) throw new HttpError(400, 'incomplete', QUESTIONS_CHANGED);
+  const result = scoreStage1(row.kind, answers as Stage1Answers, forms);
   // A changed answer re-opens the gate, so the health result is cleared and re-scored on the next save.
   await c.env.DB.prepare('UPDATE cases SET s1_answers = ?, s1_result = ?, stage = ?, status = ?, s2_result = NULL, updated_at = ? WHERE id = ?')
     .bind(JSON.stringify(answers), JSON.stringify(result), result.passed ? 2 : 1, result.passed ? 'active' : 'stopped', now(), row.id)
@@ -625,16 +647,17 @@ app.put('/cases/:id/stage2', async (c) => {
       company_name: z.string().trim().min(1).max(160),
       location: z.string().trim().min(2).max(120),
       industry: z.string().trim().min(2).max(120),
-      answers: z.record(z.string(), z.union([z.number().finite().min(-1e13).max(1e13), z.string().max(40)])),
+      answers: z.record(z.string(), z.union([z.number().finite().min(-1e13).max(1e13), z.string().trim().max(TEXT_MAX)])),
     })
     .parse(await c.req.json());
-  const answers = cleanStage2(row.kind, body.answers as Stage2Answers);
+  const forms = await loadForms(c.env);
+  const answers = cleanStage2(row.kind, body.answers as Stage2Answers, forms);
   // The periods asked depend on the month the form was filled in, so that month must be the current one.
   const [y, m] = String(answers.as_of ?? '').split('-').map(Number);
   const today = new Date();
   if (Math.abs((today.getUTCFullYear() - y) * 12 + (today.getUTCMonth() + 1 - m)) > 1) throw new HttpError(400, 'stale', 'Reload the page and try again.');
-  if (!stage2Complete(row.kind, answers)) throw new HttpError(400, 'incomplete');
-  const result = scoreStage2(row.kind, answers);
+  if (!stage2Complete(row.kind, answers, forms)) throw new HttpError(400, 'incomplete', QUESTIONS_CHANGED);
+  const result = scoreStage2(row.kind, answers, forms);
   const stage = result.passed ? Math.max(row.stage, 3) : 2;
   await c.env.DB.prepare(
     'UPDATE cases SET company_name = ?, location = ?, industry = ?, s2_answers = ?, s2_result = ?, stage = ?, status = ?, updated_at = ? WHERE id = ?',
@@ -701,8 +724,11 @@ app.put('/cases/:id/stage4', async (c) => {
       disclosures: z.record(z.string(), z.enum(['yes', 'no'])),
     })
     .parse(await c.req.json());
-  if (!stage4Complete(body)) throw new HttpError(400, 'incomplete', 'List every owner, with shares adding up to 100% at most, and answer each question.');
-  await c.env.DB.prepare('UPDATE cases SET s4_answers = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(body), now(), row.id).run();
+  const forms = await loadForms(c.env);
+  if (!stage4Complete(body, forms)) throw new HttpError(400, 'incomplete', 'List every owner, with shares adding up to 100% at most, and answer each question.');
+  // Only the questions on the form are kept, with their wording as answered.
+  const saved: Stage4Answers = { owners: body.owners, disclosures: Object.fromEntries(forms.s4.map((d) => [d.id, body.disclosures[d.id]])), asked: forms.s4 };
+  await c.env.DB.prepare('UPDATE cases SET s4_answers = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(saved), now(), row.id).run();
   await audit(c, 'stage4.saved', row.id, { owners: body.owners.length });
   return c.json({ ok: true });
 });
@@ -713,7 +739,7 @@ app.post('/cases/:id/submit', async (c) => {
   if (row.stage < 3 || row.status !== 'active') throw new HttpError(409, 'stage_locked', 'There is nothing to submit right now.');
   const signed = await c.env.DB.prepare("SELECT 1 AS x FROM signatures WHERE case_id = ? AND kind = 'nda'").bind(row.id).first();
   if (!signed) throw new HttpError(409, 'nda_required', 'Sign the confidentiality agreement first.');
-  if (row.stage === 4 && !stage4Complete(parse<Stage4Answers>(row.s4_answers))) {
+  if (row.stage === 4 && !stage4Complete(parse<Stage4Answers>(row.s4_answers), await loadForms(c.env))) {
     throw new HttpError(400, 'incomplete', 'Save the owners and the disclosure answers first.');
   }
   const docs = await c.env.DB.prepare('SELECT DISTINCT item_key FROM documents WHERE case_id = ?').bind(row.id).all<{ item_key: string }>();
@@ -961,6 +987,76 @@ app.get('/admin/overview', async (c) => {
   };
   const count = (role: string) => users.results.find((r) => r.role === role)?.n ?? 0;
   return c.json({ us: track('us'), br: track('br'), team: count('staff'), owners: count('applicant'), mail: mailReady(c.env), ai: !!c.env.AI });
+});
+
+/* ---------- Questionnaires ---------- */
+
+const FormKeyZ = z.enum(FORM_KEYS as [FormKey, ...FormKey[]]);
+
+app.get('/admin/forms', async (c) => {
+  requireAdmin(c);
+  const { results } = await c.env.DB.prepare('SELECT id, key, body IS NOT NULL AS edited, created_at, created_by FROM forms ORDER BY id DESC LIMIT 400').all<{
+    id: number;
+    key: FormKey;
+    edited: number;
+    created_at: number;
+    created_by: string;
+  }>();
+  // Per form: the version in use and the last few before it, newest first.
+  const versions = Object.fromEntries(FORM_KEYS.map((k) => [k, results.filter((r) => r.key === k).slice(0, 12)]));
+  return c.json({ forms: await loadForms(c.env), defaults: DEFAULT_FORMS, versions });
+});
+
+/** Saves a form. `base` is the version the editor started from, so two admins cannot overwrite each other unseen. */
+async function saveForm(c: Context<AppEnv>, key: FormKey, body: string | null, base: number, action: string, detail: object = {}) {
+  const u = requireAdmin(c);
+  const res = await c.env.DB.prepare(
+    `INSERT INTO forms (key, body, created_at, created_by)
+     SELECT ?1, ?2, ?3, ?4 WHERE COALESCE((SELECT MAX(id) FROM forms WHERE key = ?1), 0) = ?5`,
+  )
+    .bind(key, body, now(), u.email, base)
+    .run();
+  if (res.meta.changes === 0) throw new HttpError(409, 'form_changed', 'Someone else changed this questionnaire. Reload to see their version.');
+  await audit(c, action, null, { form: key, ...detail });
+  return c.json({ ok: true });
+}
+
+app.put('/admin/forms/:key', async (c) => {
+  requireAdmin(c);
+  const key = FormKeyZ.parse(c.req.param('key'));
+  const { body, base } = z.object({ body: z.array(z.unknown()).max(100), base: z.number().int().min(0) }).parse(await c.req.json());
+  const form = canonicalForm(key, body);
+  const problem = formProblem(key, form);
+  if (problem) throw new HttpError(400, 'invalid_form', problem.en);
+  return saveForm(c, key, JSON.stringify(form), base, 'form.saved', { items: form.length });
+});
+
+app.delete('/admin/forms/:key', async (c) => {
+  const key = FormKeyZ.parse(c.req.param('key'));
+  const base = z.coerce.number().int().min(0).parse(c.req.query('base'));
+  return saveForm(c, key, null, base, 'form.reset');
+});
+
+app.post('/admin/forms/:key/restore', async (c) => {
+  requireAdmin(c);
+  const key = FormKeyZ.parse(c.req.param('key'));
+  const { id, base } = z.object({ id: z.number().int().positive(), base: z.number().int().min(0) }).parse(await c.req.json());
+  const row = await c.env.DB.prepare('SELECT body FROM forms WHERE id = ? AND key = ?').bind(id, key).first<{ body: string | null }>();
+  if (!row) throw new HttpError(404, 'not_found');
+  if (row.body) {
+    const form = canonicalForm(key, parse(row.body));
+    if (formProblem(key, form)) throw new HttpError(400, 'invalid_form', 'That version can no longer be used.');
+    return saveForm(c, key, JSON.stringify(form), base, 'form.restored', { version: id });
+  }
+  return saveForm(c, key, null, base, 'form.restored', { version: id });
+});
+
+app.get('/admin/forms/:key/versions/:id', async (c) => {
+  requireAdmin(c);
+  const key = FormKeyZ.parse(c.req.param('key'));
+  const row = await c.env.DB.prepare('SELECT body FROM forms WHERE id = ? AND key = ?').bind(Number(c.req.param('id')), key).first<{ body: string | null }>();
+  if (!row) throw new HttpError(404, 'not_found');
+  return c.json({ body: row.body ? canonicalForm(key, parse(row.body)) : getForm(DEFAULT_FORMS, key) });
 });
 
 app.get('/admin/users', async (c) => {
