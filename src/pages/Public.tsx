@@ -1,4 +1,4 @@
-import { ArrowRight, Building2, Check, KeyRound, MailCheck, Plane } from 'lucide-react';
+import { ArrowRight, Building2, Check, Clock, FileX, KeyRound, MailCheck, MousePointerClick, Plane } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { KINDS, scoreStage1, stage1Complete, type Kind, type Stage1Answers } from '../../shared/process';
@@ -24,81 +24,98 @@ export function loadDraft(): Draft | null {
 const saveDraft = (d: Draft) => sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d));
 
 export function Landing() {
-  const { t, user, config } = useSession();
+  const { t, user } = useSession();
   if (user) return <Navigate to="/app" replace />;
-  const steps = [
-    {
-      time: t('2 min', '2 min'),
-      title: t('Eight quick questions', 'Oito perguntas rápidas'),
-      text: config.mail
-        ? t('One tap each. We email you a scorecard with the result.', 'Um toque cada. Enviamos um scorecard com o resultado por e-mail.')
-        : t('One tap each. You get a scorecard with the result.', 'Um toque cada. Você recebe um scorecard com o resultado.'),
-    },
-    {
-      time: t('5 min', '5 min'),
-      title: t('A few numbers', 'Alguns números'),
-      text: t('Revenue, earnings and team size. Round numbers are fine.', 'Faturamento, lucro e tamanho da equipe. Números redondos bastam.'),
-    },
-    {
-      time: t('1–3 days', '1–3 dias'),
-      title: t('Five core documents', 'Cinco documentos principais'),
-      text: t('You sign a confidentiality agreement first, then upload them or share a folder link.', 'Você assina antes um acordo de confidencialidade e depois envia os arquivos ou o link de uma pasta.'),
-    },
-    {
-      time: t('1–2 weeks', '1–2 semanas'),
-      title: t('Owners and final checks', 'Sócios e verificações finais'),
-      text: t('Who owns the company, a few disclosures and the remaining documents.', 'Quem são os sócios, algumas declarações e os documentos restantes.'),
-    },
-  ];
-  const tips = [
-    t('Start now with step 1. It needs no documents and no preparation.', 'Comece agora pela etapa 1. Ela não exige documentos nem preparação.'),
-    t('Answer for the business as it is today, not as you plan it to be.', 'Responda sobre o negócio como ele é hoje, não como você planeja que seja.'),
-    t('Choose carefully. Answers in step 1 cannot be changed after you see the result.', 'Escolha com cuidado. As respostas da etapa 1 não podem ser alteradas depois de ver o resultado.'),
-    t('Each step opens only after the one before it is cleared, so we never ask for more than we need.', 'Cada etapa só abre depois que a anterior é aprovada, então nunca pedimos mais do que o necessário.'),
-    t('After step 1 you create a password, and you can stop and come back at any time.', 'Depois da etapa 1 você cria uma senha e pode parar e voltar quando quiser.'),
-    t('Everything you share is confidential, encrypted and seen only by our team.', 'Tudo o que você compartilha é confidencial, criptografado e visto apenas pela nossa equipe.'),
+  const facts = [
+    { icon: Clock, text: t('2 minutes', '2 minutos') },
+    { icon: MousePointerClick, text: t('8 questions', '8 perguntas') },
+    { icon: FileX, text: t('No documents', 'Sem documentos') },
   ];
   const tracks = [
-    { kind: 'us' as const, icon: Building2, title: t('My business is in the United States', 'Meu negócio fica nos Estados Unidos'), sub: t('I am the owner and I am considering a sale.', 'Sou o dono e estou considerando vender.') },
-    { kind: 'br' as const, icon: Plane, title: t('My company is in Brazil', 'Minha empresa fica no Brasil'), sub: t('I want to acquire a U.S. business and apply for an L-1 visa.', 'Quero adquirir um negócio nos EUA e solicitar o visto L-1.') },
+    { kind: 'us' as const, icon: Building2, title: t('United States', 'Estados Unidos'), sub: t('I own it and may sell it.', 'Sou o dono e posso vender.') },
+    { kind: 'br' as const, icon: Plane, title: t('Brazil', 'Brasil'), sub: t('I want to buy a U.S. business.', 'Quero comprar um negócio nos EUA.') },
+  ];
+  const later = [
+    { n: 2, title: t('A few numbers', 'Alguns números'), time: t('5 min', '5 min'), text: t('Revenue, profit, team size.', 'Faturamento, lucro, equipe.') },
+    { n: 3, title: t('Five documents', 'Cinco documentos'), time: t('1–3 days', '1–3 dias'), text: t('Upload files you already have.', 'Envie arquivos que você já tem.') },
+    { n: 4, title: t('Final checks', 'Verificações finais'), time: t('1–2 weeks', '1–2 semanas'), text: t('Owners and remaining documents.', 'Sócios e documentos restantes.') },
+  ];
+  const notes = [
+    t('Answer for your business as it is today.', 'Responda sobre o negócio como ele é hoje.'),
+    t('Answers are final. Pick carefully.', 'As respostas são definitivas. Escolha com cuidado.'),
+    t('Private. Only our team sees it.', 'Privado. Só a nossa equipe vê.'),
   ];
   return (
     <>
       <Nav />
       <main className="narrow overview stack" style={{ '--gap': '28px' } as React.CSSProperties}>
-        <div className="stack" style={{ '--gap': '12px' } as React.CSSProperties}>
-          <p className="eyebrow">{t('Business evaluation', 'Avaliação do negócio')}</p>
-          <h1>{t('Let’s evaluate your business.', 'Vamos avaliar o seu negócio.')}</h1>
-          <p className="lead-sm">
-            {t(
-              'As we discussed, this is where you tell us about your business so our team can evaluate it. It is done in four short steps, and you only do the first one today.',
-              'Como conversamos, é aqui que você nos conta sobre o seu negócio para que a nossa equipe possa avaliá-lo. São quatro etapas curtas, e hoje você só faz a primeira.',
-            )}
-          </p>
+        <div className="stack center" style={{ '--gap': '14px' } as React.CSSProperties}>
+          <h1>{t('Does your business qualify?', 'O seu negócio se qualifica?')}</h1>
+          <p className="lead-sm">{t('Find out now. It is quick and easy.', 'Descubra agora. É rápido e fácil.')}</p>
+          <div className="facts">
+            {facts.map((f) => (
+              <span key={f.text}>
+                <f.icon size={18} /> {f.text}
+              </span>
+            ))}
+          </div>
         </div>
 
-        <section className="glass pad stack" style={{ '--gap': '6px' } as React.CSSProperties}>
-          <h3 style={{ marginBottom: 8 }}>{t('How it works', 'Como funciona')}</h3>
-          {steps.map((s, i) => (
-            <div key={s.title} className="how-step">
-              <span className="stage-num">{i + 1}</span>
+        <section className="glass pad stack start-box" style={{ '--gap': '14px' } as React.CSSProperties}>
+          <div className="stack" style={{ '--gap': '4px' } as React.CSSProperties}>
+            <p className="eyebrow accent">{t('Start here', 'Comece aqui')}</p>
+            <h2>{t('Where is your business?', 'Onde fica o seu negócio?')}</h2>
+          </div>
+          {tracks.map((k) => (
+            <Link key={k.kind} to={`/check/${k.kind}`} className="start-card">
+              <k.icon size={26} style={{ flex: 'none' }} />
               <div className="grow">
-                <div className="row between" style={{ alignItems: 'baseline' }}>
-                  <strong>{s.title}</strong>
-                  <span className="tiny faint" style={{ flex: 'none' }}>
-                    {s.time}
-                  </span>
-                </div>
-                <p className="small muted">{s.text}</p>
+                <strong>{k.title}</strong>
+                <span>{k.sub}</span>
               </div>
-            </div>
+              <span className="go">
+                {t('Start', 'Começar')} <ArrowRight size={18} />
+              </span>
+            </Link>
           ))}
         </section>
 
-        <section className="glass pad stack" style={{ '--gap': '12px' } as React.CSSProperties}>
-          <h3>{t('Before you start', 'Antes de começar')}</h3>
+        <section className="stack" style={{ '--gap': '12px' } as React.CSSProperties}>
+          <h3>{t('What to expect', 'O que esperar')}</h3>
+          <div className="glass phase now">
+            <span className="tag">{t('Today', 'Hoje')}</span>
+            <div className="how-step">
+              <span className="stage-num">1</span>
+              <div className="grow">
+                <div className="row between" style={{ alignItems: 'baseline' }}>
+                  <strong>{t('Eight quick questions', 'Oito perguntas rápidas')}</strong>
+                  <span className="tiny faint">{t('2 min', '2 min')}</span>
+                </div>
+                <p className="small muted">{t('One tap each. You get your result right away.', 'Um toque cada. O resultado sai na hora.')}</p>
+              </div>
+            </div>
+          </div>
+          <div className="glass phase">
+            <span className="tag">{t('Later, only if you qualify', 'Depois, só se você se qualificar')}</span>
+            {later.map((s) => (
+              <div key={s.n} className="how-step">
+                <span className="stage-num dim">{s.n}</span>
+                <div className="grow">
+                  <div className="row between" style={{ alignItems: 'baseline' }}>
+                    <strong>{s.title}</strong>
+                    <span className="tiny faint">{s.time}</span>
+                  </div>
+                  <p className="small muted">{s.text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="stack" style={{ '--gap': '10px' } as React.CSSProperties}>
+          <h3>{t('Good to know', 'Bom saber')}</h3>
           <ul className="checklist">
-            {tips.map((x) => (
+            {notes.map((x) => (
               <li key={x}>
                 <Check size={16} />
                 <span>{x}</span>
@@ -107,22 +124,9 @@ export function Landing() {
           </ul>
         </section>
 
-        <section className="stack" style={{ '--gap': '12px' } as React.CSSProperties}>
-          <h3>{t('Start step 1', 'Começar a etapa 1')}</h3>
-          {tracks.map((k) => (
-            <Link key={k.kind} to={`/check/${k.kind}`} className="glass start-card">
-              <k.icon size={24} style={{ color: 'var(--mint)', flex: 'none' }} />
-              <div className="grow">
-                <strong>{k.title}</strong>
-                <p className="small muted">{k.sub}</p>
-              </div>
-              <ArrowRight size={20} style={{ flex: 'none' }} />
-            </Link>
-          ))}
-          <p className="small muted">
-            {t('Already started?', 'Já começou?')} <Link to="/signin">{t('Sign in to continue', 'Entre para continuar')}</Link>
-          </p>
-        </section>
+        <p className="small muted center">
+          {t('Already started?', 'Já começou?')} <Link to="/signin">{t('Sign in to continue', 'Entre para continuar')}</Link>
+        </p>
         <Disclaimer />
       </main>
     </>
