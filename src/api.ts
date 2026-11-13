@@ -103,3 +103,12 @@ export type CaseSummary = {
   created_at: number;
   updated_at: number;
 };
+
+export type Lead = {
+  id: string;
+  email: string;
+  name: string;
+  kind: import('../shared/process').Kind;
+  s1_rating: import('../shared/process').Stage1Rating;
+  updated_at: number;
+};

@@ -176,7 +176,7 @@ export function Report() {
             <h1 style={{ fontSize: '1.9rem', marginTop: 6 }}>{c.company_name || c.owner?.name}</h1>
             <p className="muted small">{[c.industry, c.location, c.owner && `${c.owner.name} (${c.owner.email})`].filter(Boolean).join(' · ')}</p>
           </div>
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+          <div className="grid verdicts">
             <div className="inset verdict">
               <span className="small muted">{t('L-1 compliance', 'Conformidade L-1')}</span>
               <span className="big">{c.s1_result ? tl(STAGE1_RATING[c.s1_result.rating]) : dash}</span>

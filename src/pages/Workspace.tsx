@@ -196,8 +196,8 @@ function OwnerBanner({ c }: { c: Case }) {
     return (
       <div className="banner bad">
         {t(
-          'This step did not pass, so the evaluation is paused here. If something changes, update your answers. Our team also reviews paused evaluations and may reach out.',
-          'Esta etapa não foi aprovada, então a avaliação está pausada aqui. Se algo mudar, atualize suas respostas. Nossa equipe também revisa avaliações pausadas e pode entrar em contato.',
+          'This step did not pass, so the evaluation is paused here. Our team reviews every paused evaluation and will reach out if there is a path forward.',
+          'Esta etapa não foi aprovada, então a avaliação está pausada aqui. Nossa equipe revisa toda avaliação pausada e entrará em contato se houver um caminho.',
         )}
       </div>
     );
@@ -230,22 +230,18 @@ export function PanelHead({ c, stage, children }: { c: Case; stage: number; chil
 
 function Stage1Panel({ c, staff, reload, go }: PanelProps) {
   const { t } = useSession();
-  const [editing, setEditing] = useState(false);
   const { error, run } = useAction();
-  const editable = !staff && c.stage <= 2 && (c.status === 'active' || c.status === 'stopped');
 
-  if ((!c.s1_result || editing) && !staff) {
+  if (!c.s1_result && !staff) {
     return (
       <>
         <PanelHead c={c} stage={1} />
         <Stage1Wizard
           kind={c.kind}
-          initial={c.s1_answers}
           onDone={(answers) =>
             run(async () => {
               await api.put(`/cases/${c.id}/stage1`, { answers });
               go(1);
-              setEditing(false);
               await reload();
             })
           }
@@ -264,13 +260,7 @@ function Stage1Panel({ c, staff, reload, go }: PanelProps) {
   }
   return (
     <>
-      <PanelHead c={c} stage={1}>
-        {editable && (
-          <button className="btn ghost sm" onClick={() => setEditing(true)}>
-            <Pencil size={14} /> {t('Change answers', 'Alterar respostas')}
-          </button>
-        )}
-      </PanelHead>
+      <PanelHead c={c} stage={1} />
       <Stage1ResultView kind={c.kind} result={c.s1_result} />
       {!staff && c.stage === 2 && c.status === 'active' && (
         <button className="btn primary lg" style={{ marginTop: 24 }} onClick={() => go(2)}>

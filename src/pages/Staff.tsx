@@ -3,7 +3,7 @@ import { Search, ShieldAlert, ShieldCheck, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { KINDS, LAST_STAGE, STAGE1_RATING, STAGE2_RATING, STAGES, STATUS, type Kind, type Status } from '../../shared/process';
-import { api, type CaseSummary } from '../api';
+import { api, type CaseSummary, type Lead } from '../api';
 import { useSession } from '../session';
 import { Chip, Field, Nav, PageLoader, fmtDate, fmtUsd, s1Tone, s2Tone, statusTone, useAction } from '../ui';
 
@@ -62,12 +62,16 @@ export function StaffHome() {
   const { t, tl, lang, user } = useSession();
   const navigate = useNavigate();
   const [rows, setRows] = useState<CaseSummary[] | null>(null);
-  const [kind, setKind] = useState<Kind>('us');
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [tab, setTab] = useState<Kind | 'leads'>('us');
+  const kind: Kind = tab === 'leads' ? 'us' : tab;
   const [filter, setFilter] = useState<Status | 'all'>('all');
   const [q, setQ] = useState('');
 
   useEffect(() => {
-    if (user?.role === 'staff') api.get<{ cases: CaseSummary[] }>('/cases').then((r) => setRows(r.cases));
+    if (user?.role !== 'staff') return;
+    api.get<{ cases: CaseSummary[] }>('/cases').then((r) => setRows(r.cases));
+    api.get<{ leads: Lead[] }>('/leads').then((r) => setLeads(r.leads));
   }, [user]);
 
   const ofKind = useMemo(() => (rows ?? []).filter((r) => r.kind === kind), [rows, kind]);
@@ -77,6 +81,11 @@ export function StaffHome() {
       (r) => (filter === 'all' || r.status === filter) && (!needle || `${r.company_name} ${r.owner_name} ${r.owner_email} ${r.industry} ${r.location}`.toLowerCase().includes(needle)),
     );
   }, [ofKind, q, filter]);
+
+  const shownLeads = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return leads.filter((l) => !needle || `${l.name} ${l.email}`.toLowerCase().includes(needle));
+  }, [leads, q]);
 
   if (!user) return <Navigate to="/signin" replace />;
   if (user.role !== 'staff') return <Navigate to="/app" replace />;
@@ -101,10 +110,13 @@ export function StaffHome() {
         <div className="row between wrapping">
           <div className="tabs" role="tablist">
             {(['us', 'br'] as const).map((k) => (
-              <button key={k} role="tab" aria-pressed={kind === k} onClick={() => { setKind(k); setFilter('all'); }}>
+              <button key={k} role="tab" aria-pressed={tab === k} onClick={() => { setTab(k); setFilter('all'); }}>
                 {k === 'us' ? t('U.S. businesses', 'Negócios nos EUA') : t('Candidates', 'Candidatos')} · {rows.filter((r) => r.kind === k).length}
               </button>
             ))}
+            <button role="tab" aria-pressed={tab === 'leads'} onClick={() => setTab('leads')}>
+              {t('Leads', 'Contatos')} · {leads.length}
+            </button>
           </div>
           <div className="affix" style={{ width: 'min(320px, 100%)' }}>
             <span>
@@ -114,6 +126,45 @@ export function StaffHome() {
           </div>
         </div>
 
+        {tab === 'leads' ? (
+          <div className="glass" style={{ overflowX: 'auto' }}>
+            {shownLeads.length === 0 ? (
+              <p className="pad muted center">
+                {leads.length === 0
+                  ? t('No leads. People who see a result without creating an account appear here.', 'Nenhum contato. Quem vê o resultado sem criar conta aparece aqui.')
+                  : t('Nothing matches.', 'Nada encontrado.')}
+              </p>
+            ) : (
+              <table className="list static cards">
+                <thead>
+                  <tr>
+                    <th>{t('Name', 'Nome')}</th>
+                    <th>Email</th>
+                    <th>{t('Track', 'Trilha')}</th>
+                    <th>L-1</th>
+                    <th>{t('Date', 'Data')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shownLeads.map((l) => (
+                    <tr key={l.id}>
+                      <td style={{ fontWeight: 600 }}>{l.name}</td>
+                      <td className="small">
+                        <a href={`mailto:${l.email}`}>{l.email}</a>
+                      </td>
+                      <td className="small">{l.kind === 'us' ? t('U.S. business', 'Negócio nos EUA') : t('Candidate', 'Candidato')}</td>
+                      <td>
+                        <Chip tone={s1Tone[l.s1_rating]}>{tl(STAGE1_RATING[l.s1_rating])}</Chip>
+                      </td>
+                      <td className="small muted">{fmtDate(l.updated_at, lang)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        ) : (
+          <>
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
           {FILTERS.map((f) => (
             <button key={f} className="glass pad-sm tile" aria-pressed={filter === f} onClick={() => setFilter(f)}>
@@ -133,7 +184,7 @@ export function StaffHome() {
                 : t('Nothing matches.', 'Nada encontrado.')}
             </p>
           ) : (
-            <table className="list">
+            <table className="list cards">
               <thead>
                 <tr>
                   <th>{tl(KINDS[kind].title)}</th>
@@ -159,8 +210,8 @@ export function StaffHome() {
                     </td>
                     <td>{r.s1_rating ? <Chip tone={s1Tone[r.s1_rating]}>{tl(STAGE1_RATING[r.s1_rating])}</Chip> : <span className="faint">—</span>}</td>
                     <td>{r.s2_rating ? <Chip tone={s2Tone[r.s2_rating]}>{tl(STAGE2_RATING[r.s2_rating])}</Chip> : <span className="faint">—</span>}</td>
-                    <td className="small">{r.stage >= 3 ? `${r.docs.received}/${r.docs.required}` : <span className="faint">—</span>}</td>
-                    <td className="small">{r.headline_usd != null ? fmtUsd(r.headline_usd) : <span className="faint">—</span>}</td>
+                    <td className="small" data-label={t('Docs', 'Docs')}>{r.stage >= 3 ? `${r.docs.received}/${r.docs.required}` : <span className="faint">—</span>}</td>
+                    <td className="small" data-label={kind === 'us' ? t('Price', 'Preço') : t('Funds', 'Recursos')}>{r.headline_usd != null ? fmtUsd(r.headline_usd) : <span className="faint">—</span>}</td>
                     <td>
                       {r.ai_suggestion ? (
                         <Chip tone={aiTone[r.ai_suggestion]}>
@@ -181,6 +232,8 @@ export function StaffHome() {
             </table>
           )}
         </div>
+          </>
+        )}
       </main>
     </>
   );

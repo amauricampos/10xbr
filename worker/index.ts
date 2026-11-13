@@ -205,6 +205,33 @@ app.post('/auth/register', async (c) => {
   return c.json({ user, caseId });
 });
 
+app.post('/leads', async (c) => {
+  await rateLimit(c.env, `lead:${c.get('ip')}`, 10, 3600);
+  const body = z
+    .object({ email: Email, name: Name, lang: LangZ.default('en'), kind: KindZ, s1_answers: z.record(z.string(), z.string()) })
+    .parse(await c.req.json());
+  if (!stage1Complete(body.kind, body.s1_answers)) throw new HttpError(400, 'incomplete');
+  const result = scoreStage1(body.kind, body.s1_answers);
+  const t = now();
+  await c.env.DB.prepare(
+    `INSERT INTO leads (id, email, name, kind, lang, s1_answers, s1_rating, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (email, kind) DO UPDATE SET name = excluded.name, lang = excluded.lang, s1_answers = excluded.s1_answers, s1_rating = excluded.s1_rating, updated_at = excluded.updated_at`,
+  )
+    .bind(randomToken(16), body.email, body.name, body.kind, body.lang, JSON.stringify(body.s1_answers), result.rating, t, t)
+    .run();
+  return c.json({ ok: true });
+});
+
+/** People who saw a result but have not created an account. */
+app.get('/leads', async (c) => {
+  requireStaff(c);
+  const { results } = await c.env.DB.prepare(
+    `SELECT l.id, l.email, l.name, l.kind, l.s1_rating, l.updated_at FROM leads l
+     LEFT JOIN users u ON u.email = l.email WHERE u.id IS NULL ORDER BY l.updated_at DESC LIMIT 500`,
+  ).all();
+  return c.json({ leads: results });
+});
+
 app.post('/auth/login', async (c) => {
   const body = z.object({ email: Email, password: z.string().max(200), code: z.string().max(12).optional() }).parse(await c.req.json());
   await rateLimit(c.env, `login:${c.get('ip')}`, 20, 900);
@@ -478,7 +505,8 @@ async function runReview(env: Env, caseId: string): Promise<void> {
 
 app.put('/cases/:id/stage1', async (c) => {
   const row = await loadCase(c, c.req.param('id'));
-  if (row.stage > 2 || !open_(row)) throw new HttpError(409, 'stage_locked', 'This step can no longer be changed.');
+  // Answers are final once scored, so the gate cannot be retried until it passes. The team can override a stop.
+  if (row.s1_result || row.stage > 2 || !open_(row)) throw new HttpError(409, 'stage_locked', 'This step can no longer be changed.');
   const { answers } = z.object({ answers: z.record(z.string(), z.string()) }).parse(await c.req.json());
   if (!stage1Complete(row.kind, answers)) throw new HttpError(400, 'incomplete');
   const result = scoreStage1(row.kind, answers as Stage1Answers);

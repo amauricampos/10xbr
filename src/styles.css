@@ -924,3 +924,151 @@ table.list tbody tr:hover {
     background: #fff !important;
   }
 }
+table.list.static tbody tr {
+  cursor: default;
+}
+.feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 22px;
+}
+.buyer-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 24px 26px;
+  color: inherit;
+  text-decoration: none;
+}
+@media (max-width: 640px) {
+  .buyer-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+.verdicts {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+/* ---------- Small screens ---------- */
+@media (max-width: 860px) {
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow: visible;
+    padding: 6px;
+  }
+  .step {
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 4px;
+    text-align: center;
+  }
+  .step .t {
+    font-size: 0.72rem;
+    font-weight: 500;
+    line-height: 1.25;
+  }
+}
+@media (max-width: 640px) {
+  .wrap,
+  .narrow {
+    width: calc(100% - 28px);
+  }
+  /* 16px keeps iOS from zooming the page when a field is focused. */
+  .input,
+  .select,
+  .textarea {
+    font-size: 16px;
+  }
+  .btn.lg {
+    width: 100%;
+  }
+  .grid.three,
+  .verdicts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .metric,
+  .verdict {
+    padding: 12px;
+  }
+  .metric .row {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+  .metric .v,
+  .verdict .big {
+    font-size: 1.1rem;
+  }
+  .doc-row {
+    padding: 12px;
+  }
+  .file {
+    flex-wrap: wrap;
+  }
+  .file > .grow {
+    flex-basis: 100%;
+  }
+  .file > .row {
+    margin-left: auto;
+  }
+  .tabs {
+    display: flex;
+    width: 100%;
+    overflow-x: auto;
+  }
+  .tabs button {
+    flex: 1 0 auto;
+    padding: 8px 12px;
+    font-size: 0.84rem;
+    white-space: nowrap;
+  }
+  .tile .n {
+    font-size: 1.35rem;
+  }
+  .legal {
+    max-height: 260px;
+    padding: 14px;
+  }
+  .banner {
+    padding: 12px 14px;
+  }
+
+  /* Tables become one card per row. */
+  table.list.cards thead {
+    display: none;
+  }
+  table.list.cards,
+  table.list.cards tbody {
+    display: block;
+  }
+  table.list.cards tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    padding: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  table.list.cards tr:first-child {
+    border-top: 0;
+  }
+  table.list.cards td {
+    padding: 0;
+    border: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  table.list.cards td:first-child {
+    flex: 1 0 100%;
+  }
+  table.list.cards td:has(> .faint:only-child) {
+    display: none;
+  }
+  table.list.cards td[data-label]::before {
+    content: attr(data-label) ' ';
+    color: var(--text-3);
+  }
+}

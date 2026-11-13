@@ -7,9 +7,9 @@ import { Chip, s1Tone } from './ui';
 const tone = { pass: 'good', caution: 'warn', fail: 'bad' } as const;
 
 /** One question per screen; a tap answers and moves on. */
-export function Stage1Wizard({ kind, initial, onDone }: { kind: Kind; initial?: Stage1Answers | null; onDone: (a: Stage1Answers) => void }) {
+export function Stage1Wizard({ kind, onDone }: { kind: Kind; onDone: (a: Stage1Answers) => void }) {
   const { t, tl } = useSession();
-  const [answers, setAnswers] = useState<Stage1Answers>(initial ?? {});
+  const [answers, setAnswers] = useState<Stage1Answers>({});
   const [i, setI] = useState(0);
   const STAGE1 = QUESTIONS[kind];
   const q = STAGE1[i];
@@ -61,9 +61,9 @@ export function Stage1ResultView({ kind, result }: { kind: Kind; result: Stage1R
   const head =
     kind === 'us'
       ? {
-          compliant: t('This business meets the L-1 requirements we screen for.', 'Este negócio atende aos requisitos do L-1 que analisamos.'),
-          gaps: t('An L-1 investor can buy this business. A few points need attention.', 'Um investidor L-1 pode comprar este negócio. Alguns pontos precisam de atenção.'),
-          not_compliant: t('As it stands, an L-1 investor cannot buy this business.', 'Do jeito que está, um investidor L-1 não pode comprar este negócio.'),
+          compliant: t('Good news. Your business qualifies for our international buyers.', 'Boa notícia. O seu negócio se qualifica para os nossos compradores internacionais.'),
+          gaps: t('Your business can qualify for our international buyers. A few points need attention.', 'O seu negócio pode se qualificar para os nossos compradores internacionais. Alguns pontos precisam de atenção.'),
+          not_compliant: t('As it stands, our L-1 buyers cannot acquire this business.', 'Do jeito que está, os nossos compradores L-1 não podem adquirir este negócio.'),
         }[result.rating]
       : {
           compliant: t('You and your company meet the core L-1A requirements we screen for.', 'Você e sua empresa atendem aos requisitos centrais do L-1A que analisamos.'),

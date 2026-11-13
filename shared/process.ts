@@ -36,8 +36,8 @@ export const KINDS: Record<Kind, { title: L; who: L; blurb: L }> = {
     title: { en: 'U.S. business', pt: 'Negócio nos EUA' },
     who: { en: 'I own a business in the U.S.', pt: 'Tenho um negócio nos EUA' },
     blurb: {
-      en: 'Find out if your business can be bought by an L-1 investor.',
-      pt: 'Descubra se o seu negócio pode ser comprado por um investidor L-1.',
+      en: 'Find out if your business qualifies for our international buyers.',
+      pt: 'Descubra se o seu negócio se qualifica para os nossos compradores internacionais.',
     },
   },
   br: {
