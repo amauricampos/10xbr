@@ -102,15 +102,38 @@ export function Disclaimer() {
       <ShieldCheck size={14} style={{ flex: 'none', marginTop: 2 }} />
       <span>
         {t(
-          '10xBR is a screening tool, not legal advice. Only a licensed immigration attorney can advise on visa eligibility.',
-          'A 10xBR é uma ferramenta de triagem, não aconselhamento jurídico. Somente um advogado de imigração habilitado pode orientar sobre elegibilidade a vistos.',
+          '10xBR is a screening tool, not legal or investment advice. Only a licensed immigration attorney can advise on visa eligibility.',
+          'A 10xBR é uma ferramenta de triagem, não aconselhamento jurídico ou de investimento. Somente um advogado de imigração habilitado pode orientar sobre elegibilidade a vistos.',
         )}
       </span>
     </p>
   );
 }
 
+export const s1Tone = { compliant: 'good', gaps: 'warn', not_compliant: 'bad' } as const;
+export const s2Tone = { healthy: 'good', watch: 'warn', weak: 'bad' } as const;
+export const statusTone = { active: 'info', review: 'warn', stopped: 'bad', approved: 'good', declined: 'bad' } as const;
+export const fmtUsd = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+
 export const fmtDate = (ms: number, lang: string) =>
   new Date(ms).toLocaleDateString(lang === 'pt' ? 'pt-BR' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 
 export const fmtSize = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
+const METRIC_PT: [RegExp, string][] = [
+  [/\/yr$/, '/ano'],
+  [/ yr$/, ' anos'],
+  [/ mo$/, ' meses'],
+  [/× profit$/, '× lucro'],
+  [/ h\/wk$/, ' h/sem'],
+  [/^Current$/, 'Em dia'],
+  [/^Payment plan$/, 'Parcelamento'],
+  [/^Overdue$/, 'Em atraso'],
+  [/^Retirement$/, 'Aposentadoria'],
+  [/^New venture$/, 'Novo projeto'],
+  [/^Personal$/, 'Pessoal'],
+  [/^Declining$/, 'Em queda'],
+];
+/** Metric values are stored in English; this localizes their units and labels for display. */
+export const metricValue = (value: string, lang: string) =>
+  lang === 'pt' ? METRIC_PT.reduce((v, [re, to]) => v.replace(re, to), value) : value;

@@ -1,26 +1,26 @@
-import { Check, Download, FolderOpen, PenLine, RefreshCw, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { Check, Download, FolderOpen, PenLine, Plus, RefreshCw, Send, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { CHECKS, SECTIONS, docsFor, type CheckStatus, type DocItem, type DocSection } from '../../shared/documents';
-import { CONSENT_VERSION, NDA_VERSION, consentText, ndaText } from '../../shared/legal';
-import type { UsPlan } from '../../shared/process';
-import { api, type Case, type Decision, type Doc } from '../api';
+import { docsFor, type DocItem } from '../../shared/documents';
+import { NDA_VERSION, ndaText } from '../../shared/legal';
+import { DISCLOSURES, stage4Complete, type Owner } from '../../shared/process';
+import { api, type Case, type Doc } from '../api';
 import { useSession } from '../session';
 import { Chip, Field, Spinner, fmtDate, fmtSize, useAction } from '../ui';
 import { PanelHead, type PanelProps } from './Workspace';
 
-const planOf = (c: Case) => (c.s1_answers?.us_plan as UsPlan) ?? 'undecided';
+type Common = { c: Case; staff: boolean; reload: () => Promise<void> };
 
 /* ------------------------------------------------------------------ */
 /* E-signature                                                         */
 /* ------------------------------------------------------------------ */
 
-function SignCard({ c, kind, staff, reload }: { c: Case; kind: 'nda' | 'background_consent'; staff: boolean; reload: () => Promise<void> }) {
+function SignCard({ c, staff, reload }: Common) {
   const { t, lang, user, config } = useSession();
-  const signed = c.signatures.find((s) => s.kind === kind);
+  const signed = c.signatures.find((s) => s.kind === 'nda');
   const [name, setName] = useState(user?.name ?? '');
   const [agree, setAgree] = useState(false);
   const { busy, error, run } = useAction();
-  const title = kind === 'nda' ? t('Confidentiality agreement', 'Acordo de confidencialidade') : t('Background check authorization', 'Autorização para verificação de antecedentes');
+  const title = t('Confidentiality agreement', 'Acordo de confidencialidade');
 
   if (signed) {
     return (
@@ -35,25 +35,20 @@ function SignCard({ c, kind, staff, reload }: { c: Case; kind: 'nda' | 'backgrou
   if (staff) {
     return (
       <div className="banner">
-        {title}: {t('waiting for the applicant to sign.', 'aguardando assinatura do candidato.')}
+        {title}: {t('waiting for the owner to sign.', 'aguardando assinatura do responsável.')}
       </div>
     );
   }
-  const text = (kind === 'nda' ? ndaText : consentText)(config.entity)[lang];
   return (
     <div className="stack">
       <div className="row">
         <PenLine size={18} style={{ color: 'var(--mint)' }} />
         <h3>{title}</h3>
-        <span className="tiny faint">{kind === 'nda' ? NDA_VERSION : CONSENT_VERSION}</span>
+        <span className="tiny faint">{NDA_VERSION}</span>
       </div>
-      <p className="small muted">
-        {kind === 'nda'
-          ? t('It protects both sides. Sign once and the document area opens.', 'Protege os dois lados. Assine uma vez e a área de documentos é liberada.')
-          : t('Needed before we run identity and background checks.', 'Necessária antes de verificarmos identidade e antecedentes.')}
-      </p>
+      <p className="small muted">{t('It protects both sides. Sign once and the document area opens.', 'Protege os dois lados. Assine uma vez e a área de documentos é liberada.')}</p>
       <div className="inset legal" tabIndex={0}>
-        {text}
+        {ndaText(config.entity)[lang]}
       </div>
       <Field label={t('Type your full legal name to sign', 'Digite seu nome completo para assinar')}>
         <input className="input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" style={{ fontFamily: 'var(--display)', fontSize: '1.1rem' }} />
@@ -72,7 +67,7 @@ function SignCard({ c, kind, staff, reload }: { c: Case; kind: 'nda' | 'backgrou
         <button
           className="btn primary lg"
           disabled={busy || !agree || name.trim().length < 2}
-          onClick={() => run(async () => { await api.post(`/cases/${c.id}/sign`, { kind, name, lang, agree: true }); await reload(); })}
+          onClick={() => run(async () => { await api.post(`/cases/${c.id}/sign`, { name, lang, agree: true }); await reload(); })}
         >
           <PenLine size={17} /> {t('Sign', 'Assinar')}
         </button>
@@ -104,16 +99,16 @@ function AiChip({ d }: { d: Doc }) {
   );
 }
 
-function FileRow({ d, c, staff, reload }: { d: Doc; c: Case; staff: boolean; reload: () => Promise<void> }) {
+function FileRow({ d, c, staff, reload }: Common & { d: Doc }) {
   const { t } = useSession();
   const { busy, run } = useAction();
   const ai = d.ai_result;
-  const canDelete = staff || (d.review === 'received' && c.status !== 'decided');
+  const canDelete = staff || (d.review === 'received' && c.status === 'active');
   const act = (fn: () => Promise<unknown>) => run(async () => { await fn(); await reload(); });
 
   return (
     <div className="file">
-      <div className="grow stack" style={{ '--gap': '6px' } as React.CSSProperties}>
+      <div className="grow stack" style={{ '--gap': '6px', minWidth: 0 } as React.CSSProperties}>
         <div className="row wrapping" style={{ '--gap': '8px' } as React.CSSProperties}>
           <span className="name" title={d.filename}>
             {d.filename}
@@ -125,7 +120,7 @@ function FileRow({ d, c, staff, reload }: { d: Doc; c: Case; staff: boolean; rel
         </div>
         {d.review === 'rejected' && d.review_note && <span className="small" style={{ color: 'var(--bad)' }}>{d.review_note}</span>}
         {ai && ai.concerns.length > 0 && (
-          <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>
+          <ul className="small muted bullets">
             {ai.concerns.map((x, i) => (
               <li key={i}>{x}</li>
             ))}
@@ -134,7 +129,7 @@ function FileRow({ d, c, staff, reload }: { d: Doc; c: Case; staff: boolean; rel
         {staff && ai?.summary && (
           <details>
             <summary className="small" style={{ cursor: 'pointer', color: 'var(--text-2)' }}>
-              {t('AI analysis', 'Análise da IA')} · {ai.doc_type}
+              {t('AI reading', 'Leitura da IA')} · {ai.doc_type}
               {ai.period ? ` · ${ai.period}` : ''}
             </summary>
             <div className="stack" style={{ '--gap': '8px', marginTop: 8 } as React.CSSProperties}>
@@ -165,13 +160,13 @@ function FileRow({ d, c, staff, reload }: { d: Doc; c: Case; staff: boolean; rel
               title={t('Ask for a new copy', 'Pedir nova cópia')}
               disabled={busy}
               onClick={() => {
-                const note = window.prompt(t('What should the applicant fix?', 'O que o candidato deve corrigir?')) ?? '';
+                const note = window.prompt(t('What should the owner fix?', 'O que o responsável deve corrigir?')) ?? '';
                 if (note.trim()) act(() => api.put(`/documents/${d.id}/review`, { review: 'rejected', note }));
               }}
             >
               <X size={16} />
             </button>
-            <button className="btn ghost icon" title={t('Re-run AI analysis', 'Refazer análise da IA')} disabled={busy} onClick={() => act(() => api.post(`/documents/${d.id}/analyze`))}>
+            <button className="btn ghost icon" title={t('Re-run AI reading', 'Refazer leitura da IA')} disabled={busy} onClick={() => act(() => api.post(`/documents/${d.id}/analyze`))}>
               <RefreshCw size={15} />
             </button>
           </>
@@ -194,13 +189,13 @@ function FileRow({ d, c, staff, reload }: { d: Doc; c: Case; staff: boolean; rel
   );
 }
 
-function DocRow({ item, c, staff, reload }: { item: DocItem; c: Case; staff: boolean; reload: () => Promise<void> }) {
+function DocRow({ item, c, staff, reload }: Common & { item: DocItem }) {
   const { t, tl } = useSession();
   const files = c.documents.filter((d) => d.item_key === item.key);
   const [over, setOver] = useState(false);
   const { busy, error, run } = useAction();
   const input = useRef<HTMLInputElement>(null);
-  const open = c.status !== 'decided';
+  const open = staff ? c.status !== 'approved' && c.status !== 'declined' : c.status === 'active';
 
   const upload = (list: FileList | null) => {
     if (!list?.length) return;
@@ -211,7 +206,6 @@ function DocRow({ item, c, staff, reload }: { item: DocItem; c: Case; staff: boo
         form.append('file', file);
         await api.post(`/cases/${c.id}/documents`, form);
       }
-      await reload();
     }).then(() => reload());
   };
 
@@ -255,15 +249,13 @@ function DocRow({ item, c, staff, reload }: { item: DocItem; c: Case; staff: boo
   );
 }
 
-function Checklist({ c, staff, reload, stage }: { c: Case; staff: boolean; reload: () => Promise<void>; stage: 3 | 4 }) {
-  const { t, tl } = useSession();
-  const items = docsFor(planOf(c), stage).filter((d) => d.stage === stage);
+function Checklist({ c, staff, reload, stage }: Common & { stage: 3 | 4 }) {
+  const { t } = useSession();
+  const items = docsFor(c.kind, stage).filter((d) => d.stage === stage);
   const required = items.filter((i) => !i.optional);
   const have = required.filter((i) => c.documents.some((d) => d.item_key === i.key)).length;
-  const sections = (Object.keys(SECTIONS) as DocSection[]).filter((s) => items.some((i) => i.section === s));
-
   return (
-    <div className="stack" style={{ '--gap': '18px' } as React.CSSProperties}>
+    <div className="stack" style={{ '--gap': '12px' } as React.CSSProperties}>
       <div className="row">
         <div className="progress grow">
           <i style={{ width: `${required.length ? (have / required.length) * 100 : 0}%` }} />
@@ -272,57 +264,34 @@ function Checklist({ c, staff, reload, stage }: { c: Case; staff: boolean; reloa
           {have}/{required.length} {t('received', 'recebidos')}
         </span>
       </div>
-      {sections.map((s) => {
-        const list = items.filter((i) => i.section === s);
-        const body = (
-          <div className="stack" style={{ '--gap': '8px' } as React.CSSProperties}>
-            {list.map((i) => (
-              <DocRow key={i.key} item={i} c={c} staff={staff} reload={reload} />
-            ))}
-          </div>
-        );
-        if (stage === 3) {
-          return (
-            <div key={s} className="stack" style={{ '--gap': '10px' } as React.CSSProperties}>
-              <p className="eyebrow">{tl(SECTIONS[s])}</p>
-              {body}
-            </div>
-          );
-        }
-        const got = list.filter((i) => c.documents.some((d) => d.item_key === i.key)).length;
-        return (
-          <details key={s} className="inset" style={{ padding: '4px 14px' }}>
-            <summary className="row between" style={{ cursor: 'pointer', padding: '12px 0', fontWeight: 600 }}>
-              <span>{tl(SECTIONS[s])}</span>
-              <span className="small muted" style={{ fontWeight: 400 }}>
-                {got}/{list.length}
-              </span>
-            </summary>
-            <div style={{ paddingBottom: 12 }}>{body}</div>
-          </details>
-        );
-      })}
+      <div className="stack" style={{ '--gap': '8px' } as React.CSSProperties}>
+        {items.map((i) => (
+          <DocRow key={i.key} item={i} c={c} staff={staff} reload={reload} />
+        ))}
+      </div>
     </div>
   );
 }
 
-function FolderLink({ c, reload }: { c: Case; reload: () => Promise<void> }) {
+function FolderLink({ c, staff, reload }: Common) {
   const { t } = useSession();
   const [url, setUrl] = useState(c.folder_url ?? '');
   const { busy, error, run } = useAction();
   const dirty = url.trim() !== (c.folder_url ?? '');
+  if (staff && !c.folder_url) return null;
   return (
     <div className="inset pad-sm stack" style={{ '--gap': '8px' } as React.CSSProperties}>
       <div className="row">
         <FolderOpen size={17} style={{ color: 'var(--mint)', flex: 'none' }} />
         <span className="small" style={{ fontWeight: 600 }}>
-          {t('Already have everything in a shared folder?', 'Já tem tudo em uma pasta compartilhada?')}
+          {staff ? t('Shared folder from the owner', 'Pasta compartilhada pelo responsável') : t('Already have everything in a shared folder?', 'Já tem tudo em uma pasta compartilhada?')}
         </span>
       </div>
       <div className="row">
         <input
           className="input grow"
           type="url"
+          readOnly={staff}
           placeholder={t('Paste a Google Drive, Dropbox, OneDrive or Box link', 'Cole um link do Google Drive, Dropbox, OneDrive ou Box')}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
@@ -340,40 +309,41 @@ function FolderLink({ c, reload }: { c: Case; reload: () => Promise<void> }) {
         )}
       </div>
       {error && <p className="error">{error}</p>}
-      <p className="help">{t('Share it with view access. Our team files each document into the checklist.', 'Compartilhe com acesso de leitura. Nossa equipe organiza cada documento na lista.')}</p>
+      {!staff && <p className="help">{t('Share it with view access. Our team files each document into the list for you.', 'Compartilhe com acesso de leitura. Nossa equipe organiza cada documento na lista para você.')}</p>}
     </div>
   );
 }
 
-export function EssentialsPanel({ c, staff, reload, go }: PanelProps) {
+/** The owner hands the stage to the team. */
+function SubmitBar({ c, staff, reload, stage }: Common & { stage: 3 | 4 }) {
   const { t } = useSession();
   const { busy, error, run } = useAction();
+  if (staff || c.stage !== stage || c.status !== 'active') return null;
+  return (
+    <div className="stack" style={{ '--gap': '8px' } as React.CSSProperties}>
+      {error && <p className="error">{error}</p>}
+      <div>
+        <button className="btn primary lg" disabled={busy} onClick={() => run(async () => { await api.post(`/cases/${c.id}/submit`); await reload(); })}>
+          <Send size={17} /> {t('Send for review', 'Enviar para revisão')}
+        </button>
+      </div>
+      <p className="help">{t('AI reads everything first, then a person on our team reviews it.', 'A IA lê tudo primeiro e depois uma pessoa da nossa equipe revisa.')}</p>
+    </div>
+  );
+}
+
+export function DocumentsPanel({ c, staff, reload }: PanelProps) {
   const signed = c.signatures.some((s) => s.kind === 'nda');
   return (
     <>
-      <PanelHead stage={3} />
+      <PanelHead c={c} stage={3} />
       <div className="stack" style={{ '--gap': '20px' } as React.CSSProperties}>
-        <SignCard c={c} kind="nda" staff={staff} reload={reload} />
+        <SignCard c={c} staff={staff} reload={reload} />
         {signed && (
           <>
-            <FolderLink c={c} reload={reload} />
+            <FolderLink c={c} staff={staff} reload={reload} />
             <Checklist c={c} staff={staff} reload={reload} stage={3} />
-            {c.stage === 3 &&
-              (staff ? (
-                <div>
-                  {error && <p className="error">{error}</p>}
-                  <button className="btn primary" disabled={busy || c.status !== 'active'} onClick={() => run(async () => { await api.post(`/cases/${c.id}/advance`); await reload(); go(4); })}>
-                    {t('Essentials reviewed: open deep verification', 'Essenciais revisados: abrir verificação completa')}
-                  </button>
-                </div>
-              ) : (
-                <p className="small muted">
-                  {t(
-                    'Once the essentials are in, our team reviews them and opens deep verification. You will see the next step here.',
-                    'Quando os essenciais estiverem enviados, nossa equipe revisa e abre a verificação completa. O próximo passo aparecerá aqui.',
-                  )}
-                </p>
-              ))}
+            <SubmitBar c={c} staff={staff} reload={reload} stage={3} />
           </>
         )}
       </div>
@@ -382,54 +352,102 @@ export function EssentialsPanel({ c, staff, reload, go }: PanelProps) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Stage 4                                                             */
+/* Stage 4: owners, disclosures, remaining documents                   */
 /* ------------------------------------------------------------------ */
 
-const checkTone: Record<CheckStatus, 'good' | 'warn' | 'bad' | 'info' | undefined> = { pending: undefined, in_progress: 'info', clear: 'good', issue: 'bad' };
-
-function CheckRow({ c, k, staff, reload }: { c: Case; k: (typeof CHECKS)[number]; staff: boolean; reload: () => Promise<void> }) {
+function OwnersForm({ c, staff, reload }: Common) {
   const { t, tl } = useSession();
-  const cur = c.checks.find((x) => x.check_key === k.key);
-  const status = cur?.status ?? 'pending';
-  const [note, setNote] = useState(cur?.note ?? '');
-  const { run } = useAction();
-  const labels: Record<CheckStatus, string> = {
-    pending: t('Not started', 'Não iniciado'),
-    in_progress: t('In progress', 'Em andamento'),
-    clear: t('Clear', 'Aprovado'),
-    issue: t('Issue found', 'Pendência'),
+  const [owners, setOwners] = useState<Owner[]>(c.s4_answers?.owners ?? [{ name: '', pct: 100, role: '' }]);
+  const [disclosures, setDisclosures] = useState<Record<string, string>>(c.s4_answers?.disclosures ?? {});
+  const [saved, setSaved] = useState(!!c.s4_answers);
+  const { busy, error, run } = useAction();
+  const editable = !staff && c.stage === 4 && c.status === 'active';
+  const total = owners.reduce((s, o) => s + (Number.isFinite(o.pct) ? o.pct : 0), 0);
+  const patch = (i: number, p: Partial<Owner>) => {
+    setOwners(owners.map((o, j) => (j === i ? { ...o, ...p } : o)));
+    setSaved(false);
   };
-  const save = (s: CheckStatus, n: string) => run(async () => { await api.put(`/cases/${c.id}/checks/${k.key}`, { status: s, note: n }); await reload(); });
+
+  if (!editable) {
+    if (!c.s4_answers) return <p className="muted">{t('Owners not listed yet.', 'Sócios ainda não informados.')}</p>;
+    return (
+      <div className="stack" style={{ '--gap': '14px' } as React.CSSProperties}>
+        <dl className="kv">
+          {c.s4_answers.owners.map((o, i) => (
+            <div key={i} style={{ display: 'contents' }}>
+              <dt>
+                {o.name}
+                {o.role ? ` · ${o.role}` : ''}
+              </dt>
+              <dd>{o.pct}%</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="stack" style={{ '--gap': '6px' } as React.CSSProperties}>
+          {DISCLOSURES.map((d) => {
+            const yes = c.s4_answers!.disclosures[d.id] === 'yes';
+            return (
+              <div key={d.id} className="row between small">
+                <span>{tl(d.label)}</span>
+                <Chip tone={yes ? 'bad' : 'good'}>{yes ? t('Yes', 'Sim') : t('No', 'Não')}</Chip>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="inset pad-sm stack" style={{ '--gap': '8px' } as React.CSSProperties}>
-      <div className="row between wrapping">
-        <div>
-          <div style={{ fontWeight: 600 }}>{tl(k.label)}</div>
-          <div className="small muted">{tl(k.blurb)}</div>
+    <div className="stack" style={{ '--gap': '16px' } as React.CSSProperties}>
+      <div className="stack" style={{ '--gap': '8px' } as React.CSSProperties}>
+        {owners.map((o, i) => (
+          <div key={i} className="owner-row">
+            <input className="input" placeholder={t('Full name', 'Nome completo')} value={o.name} maxLength={120} onChange={(e) => patch(i, { name: e.target.value })} />
+            <div className="affix">
+              <span>%</span>
+              <input className="input" inputMode="decimal" value={Number.isFinite(o.pct) ? o.pct : ''} onChange={(e) => patch(i, { pct: e.target.value === '' ? Number.NaN : Number(e.target.value.replace(',', '.')) })} />
+            </div>
+            <input className="input role" placeholder={t('Role (optional)', 'Cargo (opcional)')} value={o.role} maxLength={80} onChange={(e) => patch(i, { role: e.target.value })} />
+            <button className="btn ghost icon" disabled={owners.length === 1} title={t('Remove', 'Remover')} onClick={() => { setOwners(owners.filter((_, j) => j !== i)); setSaved(false); }}>
+              <X size={16} />
+            </button>
+          </div>
+        ))}
+        <div className="row between">
+          <button className="btn ghost sm" onClick={() => { setOwners([...owners, { name: '', pct: Math.max(0, 100 - total), role: '' }]); setSaved(false); }}>
+            <Plus size={14} /> {t('Add owner', 'Adicionar sócio')}
+          </button>
+          <span className="small" style={{ color: total > 100.01 ? 'var(--bad)' : 'var(--text-3)' }}>
+            {t('Total', 'Total')}: {total}%
+          </span>
         </div>
-        {staff ? (
-          <select className="select" style={{ width: 'auto', minHeight: 38 }} value={status} onChange={(e) => save(e.target.value as CheckStatus, note)}>
-            {(Object.keys(labels) as CheckStatus[]).map((s) => (
-              <option key={s} value={s}>
-                {labels[s]}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <Chip tone={checkTone[status]}>{labels[status]}</Chip>
-        )}
       </div>
-      {staff && (
-        <input
-          className="input"
-          style={{ minHeight: 38 }}
-          placeholder={t('Internal note (not shown to the applicant)', 'Nota interna (não aparece para o candidato)')}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          onBlur={() => note !== (cur?.note ?? '') && save(status, note)}
-        />
-      )}
+      <div className="stack" style={{ '--gap': '10px' } as React.CSSProperties}>
+        {DISCLOSURES.map((d) => (
+          <div key={d.id} className="row between wrapping">
+            <span className="small grow">{tl(d.label)}</span>
+            <div className="seg" style={{ width: 150, flex: 'none' }}>
+              {(['no', 'yes'] as const).map((v) => (
+                <button type="button" key={v} aria-pressed={disclosures[d.id] === v} onClick={() => { setDisclosures({ ...disclosures, [d.id]: v }); setSaved(false); }}>
+                  {v === 'yes' ? t('Yes', 'Sim') : t('No', 'Não')}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        <p className="help">{t('A “yes” does not stop the evaluation. We will ask for details.', 'Um “sim” não interrompe a avaliação. Vamos pedir detalhes.')}</p>
+      </div>
+      {error && <p className="error">{error}</p>}
+      <div>
+        <button
+          className="btn"
+          disabled={busy || saved || !stage4Complete({ owners, disclosures })}
+          onClick={() => run(async () => { await api.put(`/cases/${c.id}/stage4`, { owners, disclosures }); setSaved(true); await reload(); })}
+        >
+          {saved ? <Check size={15} /> : null} {saved ? t('Saved', 'Salvo') : t('Save owners', 'Salvar sócios')}
+        </button>
+      </div>
     </div>
   );
 }
@@ -438,138 +456,17 @@ export function VerificationPanel({ c, staff, reload }: PanelProps) {
   const { t } = useSession();
   return (
     <>
-      <PanelHead stage={4} />
-      <div className="stack" style={{ '--gap': '24px' } as React.CSSProperties}>
-        <SignCard c={c} kind="background_consent" staff={staff} reload={reload} />
+      <PanelHead c={c} stage={4} />
+      <div className="stack" style={{ '--gap': '26px' } as React.CSSProperties}>
         <div className="stack">
-          <h3>{t('Full document list', 'Lista completa de documentos')}</h3>
-          <p className="small muted">{t('The rest of the attorney’s petition list. Upload what you have; skip what does not apply.', 'O restante da lista de petição do advogado. Envie o que tiver; pule o que não se aplica.')}</p>
+          <h3>{t('Owners', 'Sócios')}</h3>
+          <OwnersForm c={c} staff={staff} reload={reload} />
+        </div>
+        <div className="stack">
+          <h3>{t('Remaining documents', 'Documentos restantes')}</h3>
           <Checklist c={c} staff={staff} reload={reload} stage={4} />
         </div>
-        <div className="stack">
-          <h3>{t('Verification', 'Verificação')}</h3>
-          <div className="stack" style={{ '--gap': '8px' } as React.CSSProperties}>
-            {CHECKS.map((k) => (
-              <CheckRow key={k.key} c={c} k={k} staff={staff} reload={reload} />
-            ))}
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Stage 5                                                             */
-/* ------------------------------------------------------------------ */
-
-function DecisionView({ d }: { d: Decision }) {
-  const { t, lang } = useSession();
-  const meta = {
-    proceed: { tone: 'good', label: t('Proceed', 'Prosseguir') },
-    conditions: { tone: '', label: t('Proceed with conditions', 'Prosseguir com condições') },
-    stop: { tone: 'bad', label: t('Do not proceed', 'Não prosseguir') },
-  }[d.verdict];
-  return (
-    <div className="stack">
-      <div className={`banner ${meta.tone}`}>
-        <strong style={{ fontSize: '1.05rem' }}>{meta.label}</strong>
-        <span className="faint"> · {fmtDate(d.at, lang)}</span>
-      </div>
-      <p style={{ whiteSpace: 'pre-wrap' }}>{d.summary}</p>
-      {d.conditions.length > 0 && (
-        <div>
-          <p className="eyebrow" style={{ marginBottom: 6 }}>
-            {t('Conditions', 'Condições')}
-          </p>
-          <ul style={{ margin: 0, paddingLeft: 20 }}>
-            {d.conditions.map((x, i) => (
-              <li key={i}>{x}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function DecisionPanel({ c, staff, reload }: PanelProps) {
-  const { t, config } = useSession();
-  const [verdict, setVerdict] = useState<Decision['verdict']>(c.decision?.verdict ?? 'conditions');
-  const [summary, setSummary] = useState(c.decision?.summary ?? '');
-  const [conditions, setConditions] = useState((c.decision?.conditions ?? []).join('\n'));
-  const { busy, error, run } = useAction();
-  const ai = useAction();
-
-  if (!staff) {
-    return (
-      <>
-        <PanelHead stage={5} />
-        {c.decision ? <DecisionView d={c.decision} /> : <p className="muted">{t('Your case is in review. The recommendation will appear here.', 'Seu caso está em análise. A recomendação aparecerá aqui.')}</p>}
-      </>
-    );
-  }
-
-  const save = (release: boolean) =>
-    run(async () => {
-      await api.put(`/cases/${c.id}/decision`, {
-        verdict,
-        summary,
-        conditions: conditions.split('\n').map((x) => x.trim()).filter(Boolean),
-        release,
-      });
-      await reload();
-    });
-
-  return (
-    <>
-      <PanelHead stage={5}>{c.decision_released ? <Chip tone="good">{t('Released to applicant', 'Liberado ao candidato')}</Chip> : c.decision && <Chip>{t('Draft', 'Rascunho')}</Chip>}</PanelHead>
-      <div className="stack" style={{ '--gap': '18px' } as React.CSSProperties}>
-        <div className="seg">
-          {(
-            [
-              ['proceed', t('Proceed', 'Prosseguir')],
-              ['conditions', t('Proceed with conditions', 'Prosseguir com condições')],
-              ['stop', t('Do not proceed', 'Não prosseguir')],
-            ] as const
-          ).map(([v, label]) => (
-            <button key={v} type="button" aria-pressed={verdict === v} onClick={() => setVerdict(v)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <Field label={t('Summary for the applicant', 'Resumo para o candidato')}>
-          <textarea className="textarea" style={{ minHeight: 190 }} value={summary} onChange={(e) => setSummary(e.target.value)} maxLength={4000} />
-        </Field>
-        {config.ai && (
-          <div className="row wrapping">
-            <button
-              className="btn sm"
-              disabled={ai.busy}
-              onClick={() => ai.run(async () => { const r = await api.post<{ brief: string }>(`/cases/${c.id}/brief`); setSummary((s) => (s.trim() ? `${s.trim()}\n\n${r.brief}` : r.brief)); })}
-            >
-              {ai.busy ? <Spinner size={14} /> : <Sparkles size={14} />} {t('Draft with AI', 'Rascunhar com IA')}
-            </button>
-            <span className="tiny faint">{t('Built from the screening results and document summaries. Edit before releasing.', 'Feito a partir dos resultados e resumos dos documentos. Edite antes de liberar.')}</span>
-          </div>
-        )}
-        {ai.error && <p className="error">{ai.error}</p>}
-        <Field label={t('Conditions, one per line', 'Condições, uma por linha')}>
-          <textarea className="textarea" style={{ minHeight: 90 }} value={conditions} onChange={(e) => setConditions(e.target.value)} />
-        </Field>
-        {error && <p className="error">{error}</p>}
-        <div className="row wrapping">
-          <button className="btn" disabled={busy || !summary.trim()} onClick={() => save(false)}>
-            {t('Save draft', 'Salvar rascunho')}
-          </button>
-          <button
-            className="btn primary"
-            disabled={busy || !summary.trim()}
-            onClick={() => window.confirm(t('Release this decision to the applicant? They will see it immediately.', 'Liberar esta decisão ao candidato? Ele verá imediatamente.')) && save(true)}
-          >
-            {t('Release to applicant', 'Liberar ao candidato')}
-          </button>
-        </div>
+        <SubmitBar c={c} staff={staff} reload={reload} stage={4} />
       </div>
     </>
   );

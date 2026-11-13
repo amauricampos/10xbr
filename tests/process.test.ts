@@ -1,92 +1,152 @@
 import { describe, expect, it } from 'vitest';
-import { STAGE1, scoreStage1, scoreStage2, stage2Complete, type Stage1Answers } from '../shared/process';
 import { DOCS, docsFor } from '../shared/documents';
+import { QUESTIONS, scoreStage1, scoreStage2, stage1Complete, stage2Complete, stage4Complete, type Kind, type Stage1Answers } from '../shared/process';
 
-const best: Stage1Answers = Object.fromEntries(STAGE1.map((q) => [q.id, q.options.find((o) => o.level === 'pass')!.value]));
+const best = (kind: Kind): Stage1Answers => Object.fromEntries(QUESTIONS[kind].map((q) => [q.id, q.options.find((o) => o.level === 'pass')!.value]));
 
-describe('stage 1: L-1 quick check', () => {
-  it('rates an all-pass profile Strong', () => {
-    const r = scoreStage1(best);
-    expect(r).toMatchObject({ rating: 'strong', passed: true, score: 100 });
+describe.each(['us', 'br'] as const)('stage 1: L-1 screen (%s)', (kind) => {
+  it('keeps the screen to eight questions', () => {
+    expect(QUESTIONS[kind]).toHaveLength(8);
   });
 
-  it('rates a single caution Possible and still passes the gate', () => {
-    const r = scoreStage1({ ...best, us_plan: 'new_office' });
-    expect(r).toMatchObject({ rating: 'possible', passed: true });
-    expect(r.findings.find((f) => f.id === 'us_plan')?.note?.en).toMatch(/New-office/);
-  });
-
-  it.each([
-    ['tenure', 'no'],
-    ['pay_trail', 'no'],
-    ['role', 'other'],
-    ['employees', '0'],
-    ['continues', 'no'],
-    ['ownership', 'minority'],
-    ['company_age', 'lt1'],
-  ])('stops the case when %s = %s', (id, value) => {
-    const r = scoreStage1({ ...best, [id]: value });
-    expect(r).toMatchObject({ rating: 'not_yet', passed: false });
+  it('rates an all-pass record Compliant', () => {
+    expect(scoreStage1(kind, best(kind))).toMatchObject({ rating: 'compliant', passed: true, score: 100 });
   });
 
   it('rejects incomplete or unknown answers', () => {
-    expect(() => scoreStage1({ ...best, role: 'ceo-of-everything' })).toThrow();
-    const { role: _role, ...partial } = best;
-    expect(() => scoreStage1(partial)).toThrow();
+    const first = QUESTIONS[kind][0].id;
+    expect(() => scoreStage1(kind, { ...best(kind), [first]: 'made-up' })).toThrow();
+    const { [first]: _dropped, ...partial } = best(kind);
+    expect(stage1Complete(kind, partial)).toBe(false);
+    expect(() => scoreStage1(kind, partial)).toThrow();
   });
 });
 
-const foreign = { rev_y1: 3_000_000, rev_y2: 3_600_000, rev_y3: 4_200_000, profit: 600_000, cash: 1_500_000, debt: 300_000, tax_status: 'good', invest_usd: 900_000 };
-const target = { us_price: 800_000, us_rev_prior: 1_400_000, us_rev: 1_500_000, us_earnings: 280_000, us_employees: 8, us_years: 9, us_premises: 'commercial', us_lease_years: 5 };
+describe('stage 1: U.S. business', () => {
+  it('passes with gaps when the buyer would have to add structure', () => {
+    const r = scoreStage1('us', { ...best('us'), employees: '1to2', premises: 'home_virtual' });
+    expect(r).toMatchObject({ rating: 'gaps', passed: true });
+    expect(r.findings.filter((f) => f.level === 'caution').map((f) => f.id)).toEqual(['employees', 'premises']);
+  });
 
-describe('stage 2: business snapshot', () => {
-  it('rates a growing, profitable company with a sound target Healthy', () => {
-    const r = scoreStage2({ ...foreign, ...target }, 'acquire');
-    expect(r.rating).toBe('healthy');
-    expect(r.metrics.map((m) => m.id)).toEqual([
-      'rev_trend', 'margin', 'runway', 'debt', 'tax', 'funding', 'us_trend', 'us_multiple', 'us_salary', 'us_staff', 'us_history', 'us_premises',
-    ]);
+  it.each([
+    ['activity', 'passive'],
+    ['employees', '0'],
+    ['sale', 'minority'],
+    ['transfer', 'no'],
+    ['records', 'informal'],
+  ])('stops the business when %s = %s', (id, value) => {
+    expect(scoreStage1('us', { ...best('us'), [id]: value })).toMatchObject({ rating: 'not_compliant', passed: false });
+  });
+});
+
+describe('stage 1: candidate', () => {
+  it.each([
+    ['role', 'other'],
+    ['tenure', 'no'],
+    ['pay_trail', 'no'],
+    ['company_age', 'lt1'],
+    ['employees', '0'],
+    ['continues', 'no'],
+    ['ownership', 'minority'],
+  ])('stops the candidate when %s = %s', (id, value) => {
+    expect(scoreStage1('br', { ...best('br'), [id]: value })).toMatchObject({ rating: 'not_compliant', passed: false });
+  });
+});
+
+const usGood = { price: 800_000, rev_y1: 1_300_000, rev_y2: 1_400_000, rev_y3: 1_500_000, sde: 280_000, employees: 8, lease_years: 5, owner_hours: 20, top_customer_pct: 10, sale_reason: 'retirement' };
+const brGood = { rev_y1: 3_000_000, rev_y2: 3_600_000, rev_y3: 4_200_000, profit: 600_000, cash: 1_500_000, debt: 300_000, invest_usd: 900_000, tax_status: 'good' };
+
+describe('stage 2: U.S. business health', () => {
+  it('rates a growing, staffed, fairly priced business Healthy', () => {
+    const r = scoreStage2('us', usGood);
+    expect(r).toMatchObject({ rating: 'healthy', passed: true, score: 100 });
+    expect(r.metrics.map((m) => m.id)).toEqual(['rev_trend', 'margin', 'multiple', 'salary', 'team', 'lease', 'owner', 'concentration', 'reason']);
+    expect(r.metrics.find((m) => m.id === 'multiple')?.value).toBe('2.9×');
+    expect(r.metrics.find((m) => m.id === 'salary')?.value).toBe('$205,000');
+  });
+
+  it('rates a business with a few soft spots Watch and keeps the gate open', () => {
+    const r = scoreStage2('us', { ...usGood, lease_years: 0, owner_hours: 40, top_customer_pct: 25, employees: 4 });
+    expect(r).toMatchObject({ rating: 'watch', passed: true });
+  });
+
+  it('rates an overpriced business that is its owner Weak and closes the gate', () => {
+    const r = scoreStage2('us', { ...usGood, price: 900_000, sde: 60_000, employees: 1, owner_hours: 70, sale_reason: 'declining' });
+    const grade = (id: string) => r.metrics.find((m) => m.id === id)?.grade;
+    expect([grade('multiple'), grade('salary'), grade('team'), grade('owner'), grade('reason')]).toEqual(['weak', 'weak', 'weak', 'weak', 'weak']);
+    expect(r).toMatchObject({ rating: 'weak', passed: false });
+  });
+
+  it('shows a loss as a negative amount', () => {
+    const r = scoreStage2('us', { ...usGood, sde: -20_000 });
+    expect(r.metrics.find((m) => m.id === 'salary')?.value).toBe('-$95,000');
+    expect(r.metrics.find((m) => m.id === 'multiple')?.value).toBe('n/a');
+  });
+});
+
+describe('stage 2: candidate company health', () => {
+  it('rates a growing, profitable, funded company Healthy', () => {
+    const r = scoreStage2('br', brGood);
+    expect(r).toMatchObject({ rating: 'healthy', passed: true });
+    expect(r.metrics.map((m) => m.id)).toEqual(['rev_trend', 'margin', 'runway', 'debt', 'tax', 'funding']);
     expect(r.metrics.find((m) => m.id === 'rev_trend')?.value).toBe('+18.3%/yr');
-    expect(r.metrics.find((m) => m.id === 'us_multiple')?.value).toBe('2.9×');
   });
 
   it('flags two straight revenue declines as weak', () => {
-    const r = scoreStage2({ ...foreign, rev_y1: 5_000_000, rev_y2: 4_600_000, rev_y3: 4_200_000 }, 'new_office');
+    const r = scoreStage2('br', { ...brGood, rev_y1: 5_000_000, rev_y2: 4_600_000, rev_y3: 4_200_000 });
     expect(r.metrics.find((m) => m.id === 'rev_trend')?.grade).toBe('weak');
     expect(r.rating).toBe('watch');
   });
 
-  it('rates a loss-making, indebted company Weak and closes the gate', () => {
-    const r = scoreStage2({ ...foreign, profit: -200_000, cash: 20_000, debt: 2_000_000, tax_status: 'issues', invest_usd: 20_000 }, 'new_office');
+  it('rates a loss-making, indebted, unfunded company Weak', () => {
+    const r = scoreStage2('br', { ...brGood, profit: -200_000, cash: 20_000, debt: 2_000_000, tax_status: 'issues', invest_usd: 20_000 });
     expect(r).toMatchObject({ rating: 'weak', passed: false });
-  });
-
-  it('grades a target whose owner is the business as weak on structure', () => {
-    const r = scoreStage2({ ...foreign, ...target, us_employees: 1, us_earnings: 60_000, us_premises: 'home_virtual' }, 'acquire');
-    const grade = (id: string) => r.metrics.find((m) => m.id === id)?.grade;
-    expect([grade('us_staff'), grade('us_salary'), grade('us_premises'), grade('us_multiple')]).toEqual(['weak', 'weak', 'weak', 'weak']);
-    expect(r.passed).toBe(false);
-  });
-
-  it('asks for U.S. figures only when there is a U.S. business to measure', () => {
-    expect(stage2Complete(foreign, 'new_office')).toBe(true);
-    expect(stage2Complete(foreign, 'acquire')).toBe(false);
-    const { us_price: _price, ...existing } = target;
-    expect(stage2Complete({ ...foreign, ...existing }, 'existing')).toBe(true);
-    expect(stage2Complete({ ...foreign, rev_y1: -5 }, 'new_office')).toBe(false);
   });
 });
 
-describe('document checklist', () => {
+describe('stage 2: input checks', () => {
+  it('needs every field of its own track', () => {
+    expect(stage2Complete('us', usGood)).toBe(true);
+    expect(stage2Complete('br', brGood)).toBe(true);
+    expect(stage2Complete('us', brGood)).toBe(false);
+    const { price: _price, ...noPrice } = usGood;
+    expect(stage2Complete('us', noPrice)).toBe(false);
+  });
+
+  it('rejects negative, out-of-range and unknown values', () => {
+    expect(stage2Complete('us', { ...usGood, rev_y1: -5 })).toBe(false);
+    expect(stage2Complete('us', { ...usGood, top_customer_pct: 140 })).toBe(false);
+    expect(stage2Complete('us', { ...usGood, sale_reason: 'bored' })).toBe(false);
+    expect(stage2Complete('us', { ...usGood, sde: -5 })).toBe(true);
+    expect(() => scoreStage2('br', { ...brGood, cash: Number.NaN })).toThrow();
+  });
+});
+
+describe('stage 4: owners and disclosures', () => {
+  const disclosures = { lawsuits: 'no', tax_liens: 'no', bankruptcy: 'no', criminal: 'yes' };
+  it('accepts a full owner list with every question answered', () => {
+    expect(stage4Complete({ owners: [{ name: 'Ann Lee', pct: 60, role: 'CEO' }, { name: 'Bo Lee', pct: 40, role: '' }], disclosures })).toBe(true);
+  });
+  it('rejects missing owners, shares over 100% and unanswered questions', () => {
+    expect(stage4Complete(null)).toBe(false);
+    expect(stage4Complete({ owners: [], disclosures })).toBe(false);
+    expect(stage4Complete({ owners: [{ name: 'Ann Lee', pct: 70, role: '' }, { name: 'Bo Lee', pct: 40, role: '' }], disclosures })).toBe(false);
+    expect(stage4Complete({ owners: [{ name: 'Ann Lee', pct: 100, role: '' }], disclosures: { lawsuits: 'no' } })).toBe(false);
+  });
+});
+
+describe('document checklists', () => {
   it('has unique keys', () => {
     expect(new Set(DOCS.map((d) => d.key)).size).toBe(DOCS.length);
   });
 
-  it('keeps stage 3 short and opens the full attorney list at stage 4', () => {
-    const essentials = docsFor('acquire', 3);
-    expect(essentials.length).toBeLessThanOrEqual(12);
-    expect(essentials.every((d) => d.stage === 3)).toBe(true);
-    expect(docsFor('acquire', 4).length).toBeGreaterThan(45);
-    expect(docsFor('new_office', 3).some((d) => d.key === 'us_listing')).toBe(false);
+  it.each(['us', 'br'] as const)('asks %s for five core documents, then opens the rest', (kind) => {
+    const core = docsFor(kind, 3);
+    expect(core).toHaveLength(5);
+    expect(core.every((d) => d.kind === kind && d.stage === 3 && !d.optional)).toBe(true);
+    const all = docsFor(kind, 4);
+    expect(all.length).toBeGreaterThan(core.length);
+    expect(all.every((d) => d.kind === kind)).toBe(true);
   });
 });

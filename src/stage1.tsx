@@ -1,16 +1,17 @@
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
-import { STAGE1, STAGE1_RATING, type Level, type Stage1Answers, type Stage1Result } from '../shared/process';
+import { QUESTIONS, STAGE1_RATING, type Kind, type Level, type Stage1Answers, type Stage1Result } from '../shared/process';
 import { useSession } from './session';
-import { Chip } from './ui';
+import { Chip, s1Tone } from './ui';
 
 const tone = { pass: 'good', caution: 'warn', fail: 'bad' } as const;
 
 /** One question per screen; a tap answers and moves on. */
-export function Stage1Wizard({ initial, onDone }: { initial?: Stage1Answers | null; onDone: (a: Stage1Answers) => void }) {
+export function Stage1Wizard({ kind, initial, onDone }: { kind: Kind; initial?: Stage1Answers | null; onDone: (a: Stage1Answers) => void }) {
   const { t, tl } = useSession();
   const [answers, setAnswers] = useState<Stage1Answers>(initial ?? {});
   const [i, setI] = useState(0);
+  const STAGE1 = QUESTIONS[kind];
   const q = STAGE1[i];
 
   const pick = (value: string) => {
@@ -51,18 +52,24 @@ export function Stage1Wizard({ initial, onDone }: { initial?: Stage1Answers | nu
   );
 }
 
-const ratingTone = { strong: 'good', possible: 'warn', not_yet: 'bad' } as const;
-const ringColor = { strong: 'var(--good)', possible: 'var(--warn)', not_yet: 'var(--bad)' } as const;
+const ringColor = { compliant: 'var(--good)', gaps: 'var(--warn)', not_compliant: 'var(--bad)' } as const;
 
-export function Stage1ResultView({ result }: { result: Stage1Result }) {
+export function Stage1ResultView({ kind, result }: { kind: Kind; result: Stage1Result }) {
   const { t, tl } = useSession();
   const notes = result.findings.filter((f) => f.level !== 'pass');
   const passes = result.findings.length - notes.length;
-  const head = {
-    strong: t('Your profile meets the core L-1A requirements we screen for.', 'Seu perfil atende aos requisitos centrais do L-1A que analisamos.'),
-    possible: t('Your profile can work. A few points need attention.', 'Seu perfil pode funcionar. Alguns pontos precisam de atenção.'),
-    not_yet: t('Something essential is missing today. Here is what to fix.', 'Falta algo essencial hoje. Veja o que corrigir.'),
-  }[result.rating];
+  const head =
+    kind === 'us'
+      ? {
+          compliant: t('This business meets the L-1 requirements we screen for.', 'Este negócio atende aos requisitos do L-1 que analisamos.'),
+          gaps: t('An L-1 investor can buy this business. A few points need attention.', 'Um investidor L-1 pode comprar este negócio. Alguns pontos precisam de atenção.'),
+          not_compliant: t('As it stands, an L-1 investor cannot buy this business.', 'Do jeito que está, um investidor L-1 não pode comprar este negócio.'),
+        }[result.rating]
+      : {
+          compliant: t('You and your company meet the core L-1A requirements we screen for.', 'Você e sua empresa atendem aos requisitos centrais do L-1A que analisamos.'),
+          gaps: t('Your profile can work. A few points need attention.', 'Seu perfil pode funcionar. Alguns pontos precisam de atenção.'),
+          not_compliant: t('Something essential is missing today. Here is what to fix.', 'Falta algo essencial hoje. Veja o que corrigir.'),
+        }[result.rating];
   const order: Record<Level, number> = { fail: 0, caution: 1, pass: 2 };
 
   return (
@@ -73,7 +80,7 @@ export function Stage1ResultView({ result }: { result: Stage1Result }) {
         </div>
         <div className="stack" style={{ '--gap': '8px' } as React.CSSProperties}>
           <div>
-            <Chip tone={ratingTone[result.rating]}>
+            <Chip tone={s1Tone[result.rating]}>
               <i className="dot" /> {tl(STAGE1_RATING[result.rating])}
             </Chip>
           </div>

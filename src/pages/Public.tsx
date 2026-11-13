@@ -1,26 +1,33 @@
-import { ArrowRight, Fingerprint, KeyRound, Lock, ScrollText, Sparkles } from 'lucide-react';
+import { ArrowRight, Building2, Fingerprint, KeyRound, Lock, Plane, ScrollText, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { STAGES, scoreStage1, stage1Complete, type Stage1Answers } from '../../shared/process';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { KINDS, STAGES, scoreStage1, stage1Complete, type Kind, type Stage1Answers } from '../../shared/process';
 import { api, type User } from '../api';
 import { useSession } from '../session';
 import { Stage1ResultView, Stage1Wizard } from '../stage1';
 import { Disclaimer, Field, Nav, useAction } from '../ui';
 
 const DRAFT_KEY = 'quickcheck';
+type Draft = { kind: Kind; answers: Stage1Answers | null };
 
-export function loadDraft(): Stage1Answers | null {
+export function loadDraft(): Draft | null {
   try {
-    const a = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? 'null') as Stage1Answers | null;
-    return a && stage1Complete(a) ? a : null;
+    const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? 'null') as Draft | null;
+    if (!d || (d.kind !== 'us' && d.kind !== 'br')) return null;
+    return { kind: d.kind, answers: d.answers && stage1Complete(d.kind, d.answers) ? d.answers : null };
   } catch {
     return null;
   }
 }
+const saveDraft = (d: Draft) => sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d));
 
 export function Landing() {
   const { t, tl, user } = useSession();
   if (user) return <Navigate to="/app" replace />;
+  const tracks = [
+    { kind: 'us' as const, icon: Building2, cta: t('Check my business', 'Avaliar meu negócio') },
+    { kind: 'br' as const, icon: Plane, cta: t('Check my company', 'Avaliar minha empresa') },
+  ];
   const safety = [
     {
       icon: Lock,
@@ -35,12 +42,12 @@ export function Landing() {
     {
       icon: Fingerprint,
       title: t('Every access is logged', 'Todo acesso é registrado'),
-      text: t('An append-only record shows who opened, uploaded or changed anything in your case.', 'Um registro imutável mostra quem abriu, enviou ou alterou qualquer item do seu caso.'),
+      text: t('A permanent record shows who opened, uploaded or changed anything.', 'Um registro permanente mostra quem abriu, enviou ou alterou qualquer item.'),
     },
     {
       icon: Sparkles,
-      title: t('AI reads, people decide', 'A IA lê, pessoas decidem'),
-      text: t('AI summarizes documents and flags gaps. A person reviews every assessment.', 'A IA resume documentos e aponta lacunas. Uma pessoa revisa cada avaliação.'),
+      title: t('AI reads first, people decide', 'A IA lê primeiro, pessoas decidem'),
+      text: t('AI takes the first pass on every answer and document. Our team reviews each step.', 'A IA faz a primeira leitura de cada resposta e documento. Nossa equipe revisa cada etapa.'),
     },
   ];
   return (
@@ -48,36 +55,43 @@ export function Landing() {
       <Nav />
       <main>
         <section className="hero wrap">
-          <p className="eyebrow">{t('L-1 visa feasibility', 'Viabilidade do visto L-1')}</p>
+          <p className="eyebrow">{t('L-1 business evaluation', 'Avaliação de negócios para L-1')}</p>
           <h1 style={{ marginTop: 16 }}>
-            {t('Know if your L-1 plan works', 'Saiba se o seu plano L-1 funciona')}
-            <br />
-            <span className="gradient-text">{t('before you spend on it.', 'antes de investir nele.')}</span>
+            {t('Is the business', 'O negócio está')} <span className="gradient-text">{t('L-1 ready?', 'pronto para o L-1?')}</span>
           </h1>
           <p className="lead">
             {t(
-              'Start with nine questions. Go deeper only when you pass each gate: your business numbers, then documents, then full verification.',
-              'Comece com nove perguntas. Avance só quando passar em cada etapa: os números do negócio, depois documentos, depois verificação completa.',
+              'Eight questions tell you. Numbers and documents come later, one step at a time, only if you pass.',
+              'Oito perguntas respondem. Números e documentos vêm depois, um passo de cada vez, só se você passar.',
             )}
           </p>
-          <Link to="/check" className="btn primary lg">
-            {t('Start the 2-minute check', 'Começar a checagem de 2 minutos')} <ArrowRight size={18} />
-          </Link>
-          <p className="tiny faint" style={{ marginTop: 14 }}>
-            {t('Free. No account needed to see your result.', 'Gratuito. Não precisa de conta para ver o resultado.')}
+          <div className="grid two" style={{ maxWidth: 820, margin: '0 auto', textAlign: 'left' }}>
+            {tracks.map((k) => (
+              <Link key={k.kind} to={`/check/${k.kind}`} className="glass track-card">
+                <k.icon size={26} style={{ color: 'var(--mint)' }} />
+                <h3>{tl(KINDS[k.kind].who)}</h3>
+                <p className="small muted">{tl(KINDS[k.kind].blurb)}</p>
+                <span className="btn primary" style={{ marginTop: 'auto' }}>
+                  {k.cta} <ArrowRight size={17} />
+                </span>
+              </Link>
+            ))}
+          </div>
+          <p className="tiny faint" style={{ marginTop: 16 }}>
+            {t('Two minutes. No account needed to see your result.', 'Dois minutos. Não precisa de conta para ver o resultado.')}
           </p>
         </section>
 
         <section className="wrap">
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))' }}>
             {STAGES.map((s) => (
               <div key={s.id} className="glass stage-card">
                 <div className="row between">
                   <span className="stage-num">{s.id}</span>
-                  {tl(s.time) && <span className="tiny faint">{tl(s.time)}</span>}
+                  <span className="tiny faint">{tl(s.time)}</span>
                 </div>
-                <h3 style={{ marginTop: 6 }}>{tl(s.title)}</h3>
-                <p className="small muted">{tl(s.blurb)}</p>
+                <h3 style={{ marginTop: 6 }}>{tl(s.title.us)}</h3>
+                <p className="small muted">{tl(s.blurb.us)}</p>
               </div>
             ))}
           </div>
@@ -117,32 +131,46 @@ export function Landing() {
 }
 
 export function QuickCheck() {
-  const { t, user } = useSession();
-  const [answers, setAnswers] = useState<Stage1Answers | null>(loadDraft);
+  const { t, tl, user } = useSession();
+  const params = useParams();
+  const kind: Kind | null = params.kind === 'us' || params.kind === 'br' ? params.kind : null;
+  const [answers, setAnswers] = useState<Stage1Answers | null>(() => {
+    const d = loadDraft();
+    return d && d.kind === kind ? d.answers : null;
+  });
   const [redo, setRedo] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (user) navigate('/app', { replace: true });
   }, [user, navigate]);
+  useEffect(() => {
+    if (kind) saveDraft({ kind, answers });
+  }, [kind, answers]);
 
-  const done = (a: Stage1Answers) => {
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(a));
-    setAnswers(a);
-    setRedo(false);
-  };
-  const result = answers && !redo ? scoreStage1(answers) : null;
+  if (!kind) return <Navigate to="/" replace />;
+  const result = answers && !redo ? scoreStage1(kind, answers) : null;
 
   return (
     <>
       <Nav />
       <main className="narrow" style={{ padding: '36px 0 72px' }}>
+        <p className="eyebrow" style={{ marginBottom: 12 }}>
+          {tl(KINDS[kind].who)}
+        </p>
         <div className="glass pad">
           {!result ? (
-            <Stage1Wizard initial={answers} onDone={done} />
+            <Stage1Wizard
+              kind={kind}
+              initial={answers}
+              onDone={(a) => {
+                setAnswers(a);
+                setRedo(false);
+              }}
+            />
           ) : (
             <div className="stack" style={{ '--gap': '24px' } as React.CSSProperties}>
-              <Stage1ResultView result={result} />
+              <Stage1ResultView kind={kind} result={result} />
               <div className="row wrapping">
                 <Link to="/signup" className="btn primary lg grow">
                   {result.passed ? t('Save and continue', 'Salvar e continuar') : t('Save and talk to us', 'Salvar e falar conosco')} <ArrowRight size={18} />
@@ -153,8 +181,8 @@ export function QuickCheck() {
               </div>
               <p className="small muted">
                 {result.passed
-                  ? t('Next: a five-minute snapshot of your business numbers.', 'Próximo passo: um retrato de cinco minutos dos números do seu negócio.')
-                  : t('Create an account so our team can review your case and suggest a path.', 'Crie uma conta para nossa equipe revisar seu caso e sugerir um caminho.')}
+                  ? t('Next: five minutes on the business numbers.', 'Próximo passo: cinco minutos sobre os números do negócio.')
+                  : t('Create an account so our team can review this and suggest a path.', 'Crie uma conta para nossa equipe revisar e sugerir um caminho.')}
               </p>
             </div>
           )}
@@ -191,12 +219,14 @@ export function SignUp() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const { busy, error, run } = useAction();
+  const draft = loadDraft();
   if (user) return <Navigate to="/app" replace />;
+  if (!draft) return <Navigate to="/" replace />;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     run(async () => {
-      const res = await api.post<{ user: User }>('/auth/register', { ...form, lang, s1_answers: loadDraft() ?? undefined });
+      const res = await api.post<{ user: User }>('/auth/register', { ...form, lang, kind: draft.kind, s1_answers: draft.answers ?? undefined });
       sessionStorage.removeItem(DRAFT_KEY);
       setUser(res.user);
       navigate('/app');
@@ -205,14 +235,14 @@ export function SignUp() {
   if (!config.openSignup) {
     return (
       <AuthShell title={t('Sign-up is by invitation', 'Cadastro somente por convite')}>
-        <p className="muted">{t('Contact 10xBR to open a case.', 'Entre em contato com a 10xBR para abrir um caso.')}</p>
+        <p className="muted">{t('Contact 10xBR to get started.', 'Entre em contato com a 10xBR para começar.')}</p>
       </AuthShell>
     );
   }
   return (
     <AuthShell
       title={t('Create your secure account', 'Crie sua conta segura')}
-      sub={t('Your answers are saved to your private case.', 'Suas respostas ficam salvas no seu caso privado.')}
+      sub={t('Your answers are saved to your private workspace.', 'Suas respostas ficam salvas na sua área privada.')}
     >
       <form className="stack" onSubmit={submit}>
         <Field label={t('Full name', 'Nome completo')}>
@@ -305,7 +335,7 @@ export function SignIn() {
         </button>
       </form>
       <p className="small muted center">
-        {t('New here?', 'Novo por aqui?')} <Link to="/check">{t('Start the quick check', 'Comece pela checagem rápida')}</Link>
+        {t('New here?', 'Novo por aqui?')} <Link to="/">{t('Start the quick check', 'Comece pela checagem rápida')}</Link>
       </p>
       {config.setupNeeded && (
         <p className="tiny faint center">

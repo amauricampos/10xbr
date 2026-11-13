@@ -1,27 +1,30 @@
-import { ArrowRight, Check, Lock, Pencil, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowRight, Check, FileText, Lock, Pencil, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import {
-  CURRENCIES,
+  FIELDS,
+  KINDS,
+  LAST_STAGE,
   STAGE2_RATING,
   STAGES,
+  STATUS,
   scoreStage2,
   stage2Complete,
-  stage2Fields,
   type FieldDef,
+  type Kind,
   type Stage2Answers,
   type Stage2Result,
-  type UsPlan,
 } from '../../shared/process';
 import { api, type Case } from '../api';
 import { useSession } from '../session';
 import { Stage1ResultView, Stage1Wizard } from '../stage1';
-import { Chip, Disclaimer, Field, Nav, PageLoader, useAction } from '../ui';
-import { AuditLog, DecisionPanel, EssentialsPanel, VerificationPanel } from './Docs';
+import { Chip, Disclaimer, Field, Nav, PageLoader, metricValue, s2Tone, statusTone, useAction } from '../ui';
+import { AuditLog, DocumentsPanel, VerificationPanel } from './Docs';
+import { ReviewCard } from './Review';
 
 export type PanelProps = { c: Case; staff: boolean; reload: () => Promise<void>; go: (stage: number) => void };
 
-/** Applicants land here; it resolves their single case. */
+/** Owners land here; it resolves their evaluation. */
 export function AppHome() {
   const { user } = useSession();
   const [id, setId] = useState<string | null>(null);
@@ -42,13 +45,9 @@ export function StaffCase() {
   return <Workspace caseId={id!} />;
 }
 
-function Workspace({ caseId }: { caseId: string }) {
-  const { t, tl, user } = useSession();
-  const staff = user?.role === 'staff';
+export function useCase(caseId: string) {
   const [c, setC] = useState<Case | null>(null);
   const [failed, setFailed] = useState(false);
-  const [view, setView] = useState<number | null>(null);
-
   const reload = useCallback(async () => {
     try {
       const res = await api.get<{ case: Case }>(`/cases/${caseId}`);
@@ -57,29 +56,39 @@ function Workspace({ caseId }: { caseId: string }) {
       setFailed(true);
     }
   }, [caseId]);
-
   useEffect(() => {
     reload();
   }, [reload]);
 
-  // While AI is still reading a document, refresh quietly.
-  const reading = c?.documents.some((d) => d.ai_status === 'pending' || d.ai_status === 'running');
+  // While AI is still reading, refresh quietly.
+  const reading = c?.ai_review_status === 'running' || c?.documents.some((d) => d.ai_status === 'pending' || d.ai_status === 'running');
   useEffect(() => {
     if (!reading) return;
     const timer = setInterval(reload, 3000);
     return () => clearInterval(timer);
   }, [reading, reload]);
+  return { c, failed, reload };
+}
 
-  if (failed) {
-    return (
-      <>
-        <Nav />
-        <main className="narrow" style={{ padding: '64px 0' }}>
-          <div className="glass pad center">{t('This case could not be found.', 'Este caso não foi encontrado.')}</div>
-        </main>
-      </>
-    );
-  }
+export function NotFound() {
+  const { t } = useSession();
+  return (
+    <>
+      <Nav />
+      <main className="narrow" style={{ padding: '64px 0' }}>
+        <div className="glass pad center">{t('This record could not be found.', 'Este registro não foi encontrado.')}</div>
+      </main>
+    </>
+  );
+}
+
+function Workspace({ caseId }: { caseId: string }) {
+  const { t, tl, user } = useSession();
+  const staff = user?.role === 'staff';
+  const { c, failed, reload } = useCase(caseId);
+  const [view, setView] = useState<number | null>(null);
+
+  if (failed) return <NotFound />;
   if (!c) return <PageLoader />;
 
   const current = view ?? c.stage;
@@ -89,30 +98,35 @@ function Workspace({ caseId }: { caseId: string }) {
     <>
       <Nav />
       <main className="wrap">
-        {staff && c.applicant && (
-          <div className="row between wrapping" style={{ paddingTop: 24 }}>
-            <div>
-              <p className="eyebrow">{t('Case', 'Caso')}</p>
-              <h2>{c.applicant.name}</h2>
-              <p className="small muted">
-                {c.applicant.email}
-                {c.company_name && ` · ${c.company_name}`}
-                {c.country && ` · ${c.country}`}
-              </p>
-            </div>
-            <Link className="btn sm" to="/staff">
-              {t('All cases', 'Todos os casos')}
-            </Link>
+        <div className="row between wrapping" style={{ paddingTop: 24 }}>
+          <div>
+            <p className="eyebrow">{tl(KINDS[c.kind].title)}</p>
+            <h2>{c.company_name || (staff ? c.owner?.name : t('Your evaluation', 'Sua avaliação'))}</h2>
+            <p className="small muted">{[staff && c.owner && `${c.owner.name} · ${c.owner.email}`, c.industry, c.location].filter(Boolean).join(' · ')}</p>
           </div>
-        )}
+          <div className="row wrapping">
+            <Chip tone={statusTone[c.status]}>
+              <i className="dot" /> {tl(STATUS[c.status])}
+            </Chip>
+            {staff && (
+              <>
+                <Link className="btn sm" to={`/report/${c.id}`}>
+                  <FileText size={15} /> {t('Report', 'Relatório')}
+                </Link>
+                <Link className="btn sm" to="/staff">
+                  {t('Dashboard', 'Painel')}
+                </Link>
+              </>
+            )}
+          </div>
+        </div>
         <div className="workspace">
           <nav className="glass steps" aria-label={t('Stages', 'Etapas')}>
             {STAGES.map((s) => {
-              const done = c.stage > s.id || c.status === 'decided';
-              const now = c.stage === s.id && c.status !== 'decided';
-              const stopped = now && c.status === 'stopped';
-              // Staff can open the decision at any point, for example to decline early.
-              const locked = c.stage < s.id && !(staff && s.id === 5);
+              const done = c.stage > s.id || c.status === 'approved';
+              const now = c.stage === s.id && !done;
+              const stopped = now && (c.status === 'stopped' || c.status === 'declined');
+              const locked = c.stage < s.id;
               return (
                 <button
                   key={s.id}
@@ -124,7 +138,7 @@ function Workspace({ caseId }: { caseId: string }) {
                   <span className="badge">{stopped ? <X size={15} /> : done ? <Check size={15} /> : locked ? <Lock size={13} /> : s.id}</span>
                   <span>
                     <span className="t" style={{ display: 'block' }}>
-                      {tl(s.title)}
+                      {tl(s.title[c.kind])}
                     </span>
                     <span className="s">{tl(s.time)}</span>
                   </span>
@@ -134,13 +148,12 @@ function Workspace({ caseId }: { caseId: string }) {
           </nav>
 
           <div className="stack" style={{ '--gap': '18px' } as React.CSSProperties}>
-            {c.status === 'stopped' && current === c.stage && <StoppedBanner {...props} />}
+            {staff ? <ReviewCard c={c} reload={reload} /> : <OwnerBanner c={c} />}
             <section className="glass pad fade-in" key={current}>
               {current === 1 && <Stage1Panel {...props} />}
               {current === 2 && <Stage2Panel {...props} />}
-              {current === 3 && <EssentialsPanel {...props} />}
+              {current === 3 && <DocumentsPanel {...props} />}
               {current === 4 && <VerificationPanel {...props} />}
-              {current === 5 && <DecisionPanel {...props} />}
             </section>
             {staff && <AuditLog caseId={c.id} stamp={c.updated_at} />}
             <Disclaimer />
@@ -151,75 +164,82 @@ function Workspace({ caseId }: { caseId: string }) {
   );
 }
 
-function StoppedBanner({ c, staff, reload }: PanelProps) {
+/** One line telling the owner where things stand. */
+function OwnerBanner({ c }: { c: Case }) {
   const { t } = useSession();
-  const [reason, setReason] = useState('');
-  const { busy, error, run } = useAction();
-  if (!staff) {
+  const note = c.team_note && (
+    <p style={{ whiteSpace: 'pre-wrap' }}>
+      <strong>{t('Note from our team:', 'Nota da nossa equipe:')}</strong> {c.team_note}
+    </p>
+  );
+  if (c.status === 'approved') {
+    return (
+      <div className="banner good">
+        {c.kind === 'us'
+          ? t('Approved. Your business is in our catalog and can be presented to screened L-1 candidates.', 'Aprovado. Seu negócio está no nosso catálogo e pode ser apresentado a candidatos L-1 avaliados.')
+          : t('Approved. You are in our candidate catalog and can be matched with a U.S. business.', 'Aprovado. Você está no nosso catálogo de candidatos e pode ser combinado com um negócio nos EUA.')}
+      </div>
+    );
+  }
+  if (c.status === 'declined') {
+    return (
+      <div className="banner bad stack" style={{ '--gap': '6px' } as React.CSSProperties}>
+        <span>{t('We are not moving forward with this evaluation.', 'Não vamos seguir com esta avaliação.')}</span>
+        {note}
+      </div>
+    );
+  }
+  if (c.status === 'review') {
+    return <div className="banner">{t('With our team for review. Nothing is needed from you right now.', 'Com a nossa equipe para revisão. Nada é necessário de você agora.')}</div>;
+  }
+  if (c.status === 'stopped') {
     return (
       <div className="banner bad">
         {t(
-          'This step did not pass, so your case is paused here. If something changes, update your answers. Our team also reviews paused cases and may reach out.',
-          'Esta etapa não foi aprovada, então seu caso está pausado aqui. Se algo mudar, atualize suas respostas. Nossa equipe também revisa casos pausados e pode entrar em contato.',
+          'This step did not pass, so the evaluation is paused here. If something changes, update your answers. Our team also reviews paused evaluations and may reach out.',
+          'Esta etapa não foi aprovada, então a avaliação está pausada aqui. Se algo mudar, atualize suas respostas. Nossa equipe também revisa avaliações pausadas e pode entrar em contato.',
         )}
       </div>
     );
   }
-  return (
-    <div className="banner bad stack">
-      <strong>{t(`Stopped at stage ${c.stage}. Nothing further is collected unless you override.`, `Parado na etapa ${c.stage}. Nada mais é coletado sem sua liberação.`)}</strong>
-      <textarea
-        className="textarea"
-        style={{ minHeight: 70 }}
-        placeholder={t('Reason for overriding the gate (kept in the audit log)', 'Motivo para liberar a etapa (fica no registro de auditoria)')}
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-      />
-      {error && <p className="error">{error}</p>}
-      <div>
-        <button
-          className="btn sm"
-          disabled={busy || reason.trim().length < 10}
-          onClick={() => run(async () => { await api.post(`/cases/${c.id}/override`, { reason }); await reload(); })}
-        >
-          {t('Override and continue', 'Liberar e continuar')}
-        </button>
-      </div>
-    </div>
-  );
+  return c.team_note ? <div className="banner">{note}</div> : null;
 }
 
-function PanelHead({ stage, children }: { stage: number; children?: React.ReactNode }) {
+export function PanelHead({ c, stage, children }: { c: Case; stage: number; children?: React.ReactNode }) {
   const { tl } = useSession();
   const s = STAGES[stage - 1];
   return (
     <div className="row between wrapping" style={{ marginBottom: 22, alignItems: 'flex-start' }}>
       <div>
         <p className="eyebrow">
-          {stage} / {STAGES.length}
+          {stage} / {LAST_STAGE}
         </p>
-        <h2 style={{ marginTop: 4 }}>{tl(s.title)}</h2>
+        <h2 style={{ marginTop: 4 }}>{tl(s.title[c.kind])}</h2>
         <p className="muted small" style={{ marginTop: 4 }}>
-          {tl(s.blurb)}
+          {tl(s.blurb[c.kind])}
         </p>
       </div>
       {children}
     </div>
   );
 }
-export { PanelHead };
 
-function Stage1Panel({ c, reload, go }: PanelProps) {
+/* ------------------------------------------------------------------ */
+/* Stage 1                                                             */
+/* ------------------------------------------------------------------ */
+
+function Stage1Panel({ c, staff, reload, go }: PanelProps) {
   const { t } = useSession();
   const [editing, setEditing] = useState(false);
   const { error, run } = useAction();
-  const editable = c.stage <= 2 && c.status !== 'decided';
+  const editable = !staff && c.stage <= 2 && (c.status === 'active' || c.status === 'stopped');
 
-  if (!c.s1_result || editing) {
+  if ((!c.s1_result || editing) && !staff) {
     return (
       <>
-        <PanelHead stage={1} />
+        <PanelHead c={c} stage={1} />
         <Stage1Wizard
+          kind={c.kind}
           initial={c.s1_answers}
           onDone={(answers) =>
             run(async () => {
@@ -234,19 +254,27 @@ function Stage1Panel({ c, reload, go }: PanelProps) {
       </>
     );
   }
+  if (!c.s1_result) {
+    return (
+      <>
+        <PanelHead c={c} stage={1} />
+        <p className="muted">{t('Not answered yet.', 'Ainda não respondido.')}</p>
+      </>
+    );
+  }
   return (
     <>
-      <PanelHead stage={1}>
+      <PanelHead c={c} stage={1}>
         {editable && (
           <button className="btn ghost sm" onClick={() => setEditing(true)}>
             <Pencil size={14} /> {t('Change answers', 'Alterar respostas')}
           </button>
         )}
       </PanelHead>
-      <Stage1ResultView result={c.s1_result} />
-      {c.stage === 2 && c.status === 'active' && (
+      <Stage1ResultView kind={c.kind} result={c.s1_result} />
+      {!staff && c.stage === 2 && c.status === 'active' && (
         <button className="btn primary lg" style={{ marginTop: 24 }} onClick={() => go(2)}>
-          {t('Continue to business snapshot', 'Continuar para o retrato do negócio')} <ArrowRight size={18} />
+          {t('Continue to business health', 'Continuar para saúde do negócio')} <ArrowRight size={18} />
         </button>
       )}
     </>
@@ -257,9 +285,8 @@ function Stage1Panel({ c, reload, go }: PanelProps) {
 /* Stage 2                                                             */
 /* ------------------------------------------------------------------ */
 
-function NumberInput({ def, currency, value, onChange }: { def: FieldDef; currency: string; value: number | undefined; onChange: (n: number | undefined) => void }) {
+function NumberInput({ def, value, onChange }: { def: FieldDef; value: number | undefined; onChange: (n: number | undefined) => void }) {
   const [text, setText] = useState(value === undefined ? '' : value.toLocaleString('en-US'));
-  const prefix = def.unit === 'usd' ? 'USD' : def.unit === 'local' ? (currency === 'Other' ? '' : currency) : '';
   const parseNum = (s: string) => {
     const neg = def.allowNegative && s.trim().startsWith('-');
     const digits = s.replace(/[^\d]/g, '');
@@ -269,6 +296,7 @@ function NumberInput({ def, currency, value, onChange }: { def: FieldDef; curren
   const input = (
     <input
       className="input"
+      name={def.id}
       inputMode={def.allowNegative ? 'text' : 'numeric'}
       placeholder="0"
       value={text}
@@ -282,9 +310,9 @@ function NumberInput({ def, currency, value, onChange }: { def: FieldDef; curren
       }}
     />
   );
-  return prefix ? (
+  return def.kind === 'money' || def.unit === '%' ? (
     <div className="affix">
-      <span>{prefix}</span>
+      <span>{def.unit}</span>
       {input}
     </div>
   ) : (
@@ -294,11 +322,10 @@ function NumberInput({ def, currency, value, onChange }: { def: FieldDef; curren
 
 function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
   const { t, tl } = useSession();
-  const plan = (c.s1_answers?.us_plan as UsPlan) ?? 'undecided';
-  const { foreign, us } = useMemo(() => stage2Fields(plan), [plan]);
+  const fields = FIELDS[c.kind];
   const [company, setCompany] = useState(c.company_name);
-  const [country, setCountry] = useState(c.country || 'Brazil');
-  const [currency, setCurrency] = useState(c.currency || 'BRL');
+  const [location, setLocation] = useState(c.location);
+  const [industry, setIndustry] = useState(c.industry);
   const [a, setA] = useState<Stage2Answers>(c.s2_answers ?? {});
   const { busy, error, run } = useAction();
 
@@ -309,68 +336,61 @@ function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
       else next[id] = v;
       return next;
     });
-  const ready = company.trim() && country.trim().length >= 2 && stage2Complete(a, plan);
-
-  const renderField = (f: FieldDef) => (
-    <Field key={f.id} label={tl(f.label)} help={tl(f.help)}>
-      {f.kind === 'choice' ? (
-        <div className="seg">
-          {f.options!.map((o) => (
-            <button type="button" key={o.value} aria-pressed={a[f.id] === o.value} onClick={() => set(f.id, o.value)}>
-              {tl(o.label)}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <NumberInput def={f} currency={currency} value={a[f.id] as number | undefined} onChange={(n) => set(f.id, n)} />
-      )}
-    </Field>
-  );
+  const ready = company.trim() && location.trim().length >= 2 && industry.trim().length >= 2 && stage2Complete(c.kind, a);
 
   return (
     <form
       className="stack"
-      style={{ '--gap': '26px' } as React.CSSProperties}
+      style={{ '--gap': '22px' } as React.CSSProperties}
       onSubmit={(e) => {
         e.preventDefault();
         run(async () => {
-          await api.put(`/cases/${c.id}/stage2`, { company_name: company, country, currency, answers: a });
+          await api.put(`/cases/${c.id}/stage2`, { company_name: company, location, industry, answers: a });
           await onSaved();
         });
       }}
     >
-      <div className="stack">
-        <h3>{t('Company abroad', 'Empresa no exterior')}</h3>
-        <div className="grid two">
-          <Field label={t('Company name', 'Nome da empresa')}>
-            <input className="input" required maxLength={160} value={company} onChange={(e) => setCompany(e.target.value)} />
-          </Field>
-          <div className="grid" style={{ gridTemplateColumns: '1fr 110px' }}>
-            <Field label={t('Country', 'País')}>
-              <input className="input" required maxLength={80} value={country} onChange={(e) => setCountry(e.target.value)} />
-            </Field>
-            <Field label={t('Currency', 'Moeda')}>
-              <select className="select" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                {CURRENCIES.map((x) => (
-                  <option key={x}>{x}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-        </div>
-        <div className="grid two">{foreign.map(renderField)}</div>
+      <div className="grid three">
+        <Field label={c.kind === 'us' ? t('Business name', 'Nome do negócio') : t('Company name', 'Nome da empresa')}>
+          <input className="input" name="company" required maxLength={160} value={company} onChange={(e) => setCompany(e.target.value)} />
+        </Field>
+        <Field label={t('What it does', 'O que faz')}>
+          <input
+            className="input"
+            name="industry"
+            required
+            maxLength={120}
+            placeholder={c.kind === 'us' ? t('e.g. HVAC services', 'ex.: serviços de climatização') : t('e.g. logistics', 'ex.: logística')}
+            value={industry}
+            onChange={(e) => setIndustry(e.target.value)}
+          />
+        </Field>
+        <Field label={t('City and state', 'Cidade e estado')}>
+          <input className="input" name="location" required maxLength={120} placeholder={c.kind === 'us' ? 'Orlando, FL' : 'Curitiba, PR'} value={location} onChange={(e) => setLocation(e.target.value)} />
+        </Field>
       </div>
-      {us.length > 0 && (
-        <div className="stack">
-          <h3>{plan === 'acquire' ? t('U.S. business you plan to buy', 'Negócio nos EUA que pretende comprar') : t('Your U.S. company', 'Sua empresa nos EUA')}</h3>
-          <div className="grid two">{us.map(renderField)}</div>
-        </div>
-      )}
+      <div className="grid two">
+        {fields.map((f) => (
+          <Field key={f.id} label={tl(f.label)} help={tl(f.help)}>
+            {f.kind === 'choice' ? (
+              <div className="seg">
+                {f.options!.map((o) => (
+                  <button type="button" key={o.value} aria-pressed={a[f.id] === o.value} onClick={() => set(f.id, o.value)}>
+                    {tl(o.label)}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <NumberInput def={f} value={a[f.id] as number | undefined} onChange={(n) => set(f.id, n)} />
+            )}
+          </Field>
+        ))}
+      </div>
       <p className="help">{t('Round numbers are fine. Documents confirm them later.', 'Números arredondados bastam. Os documentos confirmam depois.')}</p>
       {error && <p className="error">{error}</p>}
       <div>
         <button className="btn primary lg" disabled={busy || !ready}>
-          {t('See my snapshot', 'Ver meu retrato')} <ArrowRight size={18} />
+          {t('See the result', 'Ver o resultado')} <ArrowRight size={18} />
         </button>
       </div>
     </form>
@@ -378,16 +398,23 @@ function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
 }
 
 const gradeTone = { good: 'good', ok: 'warn', weak: 'bad' } as const;
-const ratingTone = { healthy: 'good', watch: 'warn', weak: 'bad' } as const;
 const ringColor = { healthy: 'var(--good)', watch: 'var(--warn)', weak: 'var(--bad)' } as const;
 
-export function Stage2ResultView({ result }: { result: Stage2Result }) {
-  const { t, tl } = useSession();
+export function Stage2ResultView({ kind, result }: { kind: Kind; result: Stage2Result }) {
+  const { t, tl, lang } = useSession();
   const gradeLabel = { good: t('Good', 'Bom'), ok: t('Fair', 'Regular'), weak: t('Weak', 'Fraco') };
-  const groups = [
-    { side: 'foreign', title: t('Company abroad', 'Empresa no exterior') },
-    { side: 'us', title: t('U.S. business', 'Negócio nos EUA') },
-  ] as const;
+  const head =
+    kind === 'us'
+      ? {
+          healthy: t('The numbers show a healthy business at a fair price.', 'Os números mostram um negócio saudável a um preço justo.'),
+          watch: t('The numbers work, with points a buyer will question.', 'Os números funcionam, com pontos que um comprador vai questionar.'),
+          weak: t('The numbers do not support a sale to an L-1 investor yet.', 'Os números ainda não sustentam uma venda a um investidor L-1.'),
+        }
+      : {
+          healthy: t('The numbers show a healthy company that can fund an acquisition.', 'Os números mostram uma empresa saudável, capaz de financiar uma aquisição.'),
+          watch: t('The numbers work, with points to watch.', 'Os números funcionam, com pontos de atenção.'),
+          weak: t('The numbers do not support an acquisition yet.', 'Os números ainda não sustentam uma aquisição.'),
+        };
   return (
     <div className="stack fade-in" style={{ '--gap': '22px' } as React.CSSProperties}>
       <div className="row" style={{ '--gap': '20px' } as React.CSSProperties}>
@@ -396,58 +423,41 @@ export function Stage2ResultView({ result }: { result: Stage2Result }) {
         </div>
         <div className="stack" style={{ '--gap': '8px' } as React.CSSProperties}>
           <div>
-            <Chip tone={ratingTone[result.rating]}>
+            <Chip tone={s2Tone[result.rating]}>
               <i className="dot" /> {tl(STAGE2_RATING[result.rating])}
             </Chip>
           </div>
-          <h2>
-            {
-              {
-                healthy: t('The numbers show a healthy, stable business.', 'Os números mostram um negócio saudável e estável.'),
-                watch: t('The numbers work, with points to watch.', 'Os números funcionam, com pontos de atenção.'),
-                weak: t('The numbers do not support the plan yet.', 'Os números ainda não sustentam o plano.'),
-              }[result.rating]
-            }
-          </h2>
+          <h2>{head[result.rating]}</h2>
         </div>
       </div>
-      {groups.map((g) => {
-        const list = result.metrics.filter((m) => m.side === g.side);
-        if (!list.length) return null;
-        return (
-          <div key={g.side} className="stack" style={{ '--gap': '10px' } as React.CSSProperties}>
-            <p className="eyebrow">{g.title}</p>
-            <div className="grid three">
-              {list.map((m) => (
-                <div key={m.id} className="inset metric">
-                  <div className="row between">
-                    <span className="small muted">{tl(m.label)}</span>
-                    <Chip tone={gradeTone[m.grade]}>{gradeLabel[m.grade]}</Chip>
-                  </div>
-                  <span className="v">{m.value}</span>
-                  <span className="tiny faint">{tl(m.note)}</span>
-                </div>
-              ))}
+      <div className="grid three">
+        {result.metrics.map((m) => (
+          <div key={m.id} className="inset metric">
+            <div className="row between">
+              <span className="small muted">{tl(m.label)}</span>
+              <Chip tone={gradeTone[m.grade]}>{gradeLabel[m.grade]}</Chip>
             </div>
+            <span className="v">{metricValue(m.value, lang)}</span>
+            <span className="tiny faint">{tl(m.note)}</span>
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 }
 
-function Stage2Panel({ c, reload, go }: PanelProps) {
+function Stage2Panel({ c, staff, reload, go }: PanelProps) {
   const { t } = useSession();
   const [editing, setEditing] = useState(false);
-  const editable = c.stage >= 2 && c.stage <= 3 && c.status !== 'decided';
+  const editable = !staff && c.stage >= 2 && c.stage <= 3 && (c.status === 'active' || c.status === 'stopped');
 
-  // Staff see the score even if the applicant's last edit cleared it.
-  const result = c.s2_result ?? (c.s2_answers && c.s1_answers && safeScore(c.s2_answers, c.s1_answers.us_plan as UsPlan));
+  // Staff see the score even if the owner's last edit cleared it.
+  const result = c.s2_result ?? (c.s2_answers && safeScore(c.kind, c.s2_answers));
 
   if ((!result || editing) && editable) {
     return (
       <>
-        <PanelHead stage={2} />
+        <PanelHead c={c} stage={2} />
         <Stage2Form
           c={c}
           onSaved={async () => {
@@ -460,18 +470,25 @@ function Stage2Panel({ c, reload, go }: PanelProps) {
       </>
     );
   }
-  if (!result) return <PanelHead stage={2} />;
+  if (!result) {
+    return (
+      <>
+        <PanelHead c={c} stage={2} />
+        <p className="muted">{t('Not filled in yet.', 'Ainda não preenchido.')}</p>
+      </>
+    );
+  }
   return (
     <>
-      <PanelHead stage={2}>
+      <PanelHead c={c} stage={2}>
         {editable && (
           <button className="btn ghost sm" onClick={() => setEditing(true)}>
             <Pencil size={14} /> {t('Edit numbers', 'Editar números')}
           </button>
         )}
       </PanelHead>
-      <Stage2ResultView result={result} />
-      {c.stage === 3 && c.status === 'active' && (
+      <Stage2ResultView kind={c.kind} result={result} />
+      {!staff && c.stage === 3 && c.status === 'active' && (
         <button className="btn primary lg" style={{ marginTop: 24 }} onClick={() => go(3)}>
           {t('Continue to documents', 'Continuar para documentos')} <ArrowRight size={18} />
         </button>
@@ -480,9 +497,9 @@ function Stage2Panel({ c, reload, go }: PanelProps) {
   );
 }
 
-function safeScore(a: Stage2Answers, plan: UsPlan): Stage2Result | null {
+function safeScore(kind: Kind, a: Stage2Answers): Stage2Result | null {
   try {
-    return scoreStage2(a, plan);
+    return scoreStage2(kind, a);
   } catch {
     return null;
   }

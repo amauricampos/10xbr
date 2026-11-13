@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
-import { analyzeDocument, draftBrief } from './ai';
+import { analyzeDocument, reviewCase } from './ai';
 import {
   base32Encode,
   fromB64,
@@ -17,17 +17,23 @@ import {
 } from './crypto';
 import { HttpError, now, type AppEnv, type Env, type User } from './env';
 import { MAX_FILE_BYTES, MAX_FILES_PER_CASE, cleanFilename, deleteFile, getFile, putFile, sniff } from './storage';
-import { CHECKS, CHECK_KEYS, DOCS, docsFor } from '../shared/documents';
-import { CONSENT_VERSION, NDA_VERSION, consentText, ndaText } from '../shared/legal';
+import { docLabel, docsFor } from '../shared/documents';
+import { NDA_VERSION, ndaText } from '../shared/legal';
 import {
-  CURRENCIES,
+  DISCLOSURES,
+  LAST_STAGE,
   scoreStage1,
   scoreStage2,
   stage1Complete,
   stage2Complete,
+  stage4Complete,
+  type Kind,
   type Stage1Answers,
+  type Stage1Result,
   type Stage2Answers,
-  type UsPlan,
+  type Stage2Result,
+  type Stage4Answers,
+  type Status,
 } from '../shared/process';
 
 const app = new Hono<AppEnv>().basePath('/api');
@@ -139,6 +145,7 @@ const Email = z.string().trim().toLowerCase().email().max(200);
 const Password = z.string().min(10).max(200);
 const Name = z.string().trim().min(2).max(120);
 const LangZ = z.enum(['en', 'pt']);
+const KindZ = z.enum(['us', 'br']);
 
 async function staffExists(env: Env): Promise<boolean> {
   return !!(await env.DB.prepare("SELECT 1 AS x FROM users WHERE role = 'staff' LIMIT 1").first());
@@ -160,7 +167,7 @@ app.post('/auth/register', async (c) => {
   if (c.env.OPEN_SIGNUP !== 'true') throw new HttpError(403, 'signup_closed');
   await rateLimit(c.env, `reg:${c.get('ip')}`, 5, 3600);
   const body = z
-    .object({ email: Email, name: Name, password: Password, lang: LangZ.default('en'), s1_answers: z.record(z.string(), z.string()).optional() })
+    .object({ email: Email, name: Name, password: Password, lang: LangZ.default('en'), kind: KindZ, s1_answers: z.record(z.string(), z.string()).optional() })
     .parse(await c.req.json());
 
   if (await c.env.DB.prepare('SELECT 1 AS x FROM users WHERE email = ?').bind(body.email).first()) {
@@ -172,11 +179,11 @@ app.post('/auth/register', async (c) => {
   const t = now();
 
   let stage = 1;
-  let status = 'active';
+  let status: Status = 'active';
   let s1a: string | null = null;
   let s1r: string | null = null;
-  if (body.s1_answers && stage1Complete(body.s1_answers)) {
-    const result = scoreStage1(body.s1_answers);
+  if (body.s1_answers && stage1Complete(body.kind, body.s1_answers)) {
+    const result = scoreStage1(body.kind, body.s1_answers);
     s1a = JSON.stringify(body.s1_answers);
     s1r = JSON.stringify(result);
     stage = result.passed ? 2 : 1;
@@ -185,28 +192,16 @@ app.post('/auth/register', async (c) => {
 
   await c.env.DB.batch([
     c.env.DB.prepare("INSERT INTO users (id, email, name, role, pw_hash, pw_salt, lang, created_at) VALUES (?, ?, ?, 'applicant', ?, ?, ?, ?)").bind(
-      userId,
-      body.email,
-      body.name,
-      hash,
-      salt,
-      body.lang,
-      t,
+      userId, body.email, body.name, hash, salt, body.lang, t,
     ),
-    c.env.DB.prepare('INSERT INTO cases (id, user_id, stage, status, s1_answers, s1_result, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(
-      caseId,
-      userId,
-      stage,
-      status,
-      s1a,
-      s1r,
-      t,
-      t,
+    c.env.DB.prepare('INSERT INTO cases (id, user_id, kind, stage, status, s1_answers, s1_result, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
+      caseId, userId, body.kind, stage, status, s1a, s1r, t, t,
     ),
   ]);
   const user: User = { id: userId, email: body.email, name: body.name, role: 'applicant', lang: body.lang, totp_enabled: 0 };
   await startSession(c, user);
-  await audit(c, 'account.created', caseId, null, user);
+  await audit(c, 'account.created', caseId, { kind: body.kind }, user);
+  if (s1a) c.executionCtx.waitUntil(runReview(c.env, caseId));
   return c.json({ user, caseId });
 });
 
@@ -292,30 +287,34 @@ app.post('/auth/totp/enable', async (c) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Cases                                                               */
+/* Cases: one evaluation of one business                               */
 /* ------------------------------------------------------------------ */
 
 type CaseRow = {
   id: string;
   user_id: string;
+  kind: Kind;
   company_name: string;
-  country: string;
-  currency: string;
+  location: string;
+  industry: string;
   stage: number;
-  status: 'active' | 'stopped' | 'decided';
+  status: Status;
   s1_answers: string | null;
   s1_result: string | null;
   s2_answers: string | null;
   s2_result: string | null;
-  overrides: string;
+  s4_answers: string | null;
   folder_url: string | null;
-  decision: string | null;
-  decision_released: number;
+  ai_review: string | null;
+  ai_review_status: string;
+  team_note: string | null;
+  history: string;
   created_at: number;
   updated_at: number;
 };
 
 const parse = <T>(s: string | null): T | null => (s ? (JSON.parse(s) as T) : null);
+const open_ = (row: CaseRow) => row.status === 'active' || row.status === 'stopped';
 
 /** Returns the case only when the caller owns it or is staff. Unknown and forbidden look the same. */
 async function loadCase(c: Context<AppEnv>, id: string): Promise<CaseRow> {
@@ -325,75 +324,100 @@ async function loadCase(c: Context<AppEnv>, id: string): Promise<CaseRow> {
   return row;
 }
 
-const planOf = (row: CaseRow): UsPlan => (parse<Stage1Answers>(row.s1_answers)?.us_plan as UsPlan) ?? 'undecided';
-
 async function caseView(c: Context<AppEnv>, row: CaseRow) {
   const u = requireUser(c);
   const staff = u.role === 'staff';
-  const [sigs, docs, checks, owner] = await Promise.all([
+  const [sigs, docs, owner] = await Promise.all([
     c.env.DB.prepare('SELECT kind, version, signer_name, signed_at FROM signatures WHERE case_id = ?').bind(row.id).all(),
     c.env.DB.prepare(
       'SELECT id, item_key, filename, size, ai_status, ai_result, review, review_note, created_at FROM documents WHERE case_id = ? ORDER BY created_at',
     )
       .bind(row.id)
       .all<{ ai_result: string | null } & Record<string, unknown>>(),
-    c.env.DB.prepare('SELECT check_key, status, note, updated_at FROM checks WHERE case_id = ?').bind(row.id).all<Record<string, unknown>>(),
     staff ? c.env.DB.prepare('SELECT name, email FROM users WHERE id = ?').bind(row.user_id).first() : null,
   ]);
   return {
     id: row.id,
+    kind: row.kind,
     company_name: row.company_name,
-    country: row.country,
-    currency: row.currency,
+    location: row.location,
+    industry: row.industry,
     stage: row.stage,
     status: row.status,
     s1_answers: parse(row.s1_answers),
     s1_result: parse(row.s1_result),
     s2_answers: parse(row.s2_answers),
     s2_result: parse(row.s2_result),
-    overrides: staff ? parse(row.overrides) : [],
+    s4_answers: parse(row.s4_answers),
     folder_url: row.folder_url,
-    decision: staff || row.decision_released ? parse(row.decision) : null,
-    decision_released: !!row.decision_released,
+    team_note: row.team_note,
+    // The AI first pass and the decision trail are for the team only.
+    ai_review: staff ? parse(row.ai_review) : null,
+    ai_review_status: staff ? row.ai_review_status : 'none',
+    history: staff ? parse(row.history) : [],
     created_at: row.created_at,
     updated_at: row.updated_at,
-    applicant: owner,
+    owner,
     signatures: sigs.results,
     documents: docs.results.map((d) => {
       const ai = parse<{ doc_type: string; matches_request: string; concerns: string[] }>(d.ai_result);
       return {
         ...d,
-        // Applicants get the short feedback that helps them fix an upload; staff get the full analysis.
+        // Owners get the short feedback that helps them fix an upload; staff get the full analysis.
         ai_result: !ai ? null : staff ? ai : { doc_type: ai.doc_type, matches_request: ai.matches_request, concerns: ai.concerns },
       };
     }),
-    checks: checks.results.map((k) => (staff ? k : { ...k, note: null })),
   };
+}
+
+/** Required documents received so far, against those requested up to the current stage. */
+function docProgress(kind: Kind, stage: number, keys: Set<string>) {
+  const required = docsFor(kind, Math.max(stage, 3)).filter((d) => !d.optional);
+  return { received: required.filter((d) => keys.has(d.key)).length, required: required.length };
 }
 
 app.get('/cases', async (c) => {
   const u = requireUser(c);
-  if (u.role === 'staff') {
-    const rows = await c.env.DB.prepare(
-      `SELECT c.id, c.company_name, c.country, c.stage, c.status, c.s1_result, c.s2_result, c.decision, c.created_at, c.updated_at,
-              u.name AS applicant_name, u.email AS applicant_email,
-              (SELECT COUNT(*) FROM documents d WHERE d.case_id = c.id) AS doc_count
-       FROM cases c JOIN users u ON u.id = c.user_id ORDER BY c.updated_at DESC LIMIT 500`,
-    ).all<Record<string, unknown>>();
-    return c.json({
-      cases: rows.results.map((r) => ({
-        ...r,
-        s1_rating: parse<{ rating: string }>(r.s1_result as string | null)?.rating ?? null,
-        s2_rating: parse<{ rating: string }>(r.s2_result as string | null)?.rating ?? null,
-        verdict: parse<{ verdict: string }>(r.decision as string | null)?.verdict ?? null,
-        s1_result: undefined,
-        s2_result: undefined,
-        decision: undefined,
-      })),
-    });
+  if (u.role !== 'staff') {
+    const rows = await c.env.DB.prepare('SELECT id, kind, stage, status FROM cases WHERE user_id = ? ORDER BY created_at').bind(u.id).all();
+    return c.json({ cases: rows.results });
   }
-  const rows = await c.env.DB.prepare('SELECT id, stage, status FROM cases WHERE user_id = ? ORDER BY created_at').bind(u.id).all();
-  return c.json({ cases: rows.results });
+  const [rows, docs] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT c.id, c.kind, c.company_name, c.location, c.industry, c.stage, c.status, c.s1_result, c.s2_result, c.s2_answers,
+              c.ai_review, c.created_at, c.updated_at, u.name AS owner_name, u.email AS owner_email
+       FROM cases c JOIN users u ON u.id = c.user_id ORDER BY c.updated_at DESC LIMIT 1000`,
+    ).all<CaseRow & { owner_name: string; owner_email: string }>(),
+    c.env.DB.prepare('SELECT DISTINCT case_id, item_key FROM documents').all<{ case_id: string; item_key: string }>(),
+  ]);
+  const keys = new Map<string, Set<string>>();
+  for (const d of docs.results) (keys.get(d.case_id) ?? keys.set(d.case_id, new Set()).get(d.case_id)!).add(d.item_key);
+  return c.json({
+    cases: rows.results.map((r) => {
+      const s2a = parse<Stage2Answers>(r.s2_answers);
+      const ai = parse<{ suggestion: string; flags: string[]; mismatches: string[] }>(r.ai_review);
+      return {
+        id: r.id,
+        kind: r.kind,
+        company_name: r.company_name,
+        location: r.location,
+        industry: r.industry,
+        stage: r.stage,
+        status: r.status,
+        owner_name: r.owner_name,
+        owner_email: r.owner_email,
+        s1_rating: parse<Stage1Result>(r.s1_result)?.rating ?? null,
+        s2_rating: parse<Stage2Result>(r.s2_result)?.rating ?? null,
+        // Headline number for the catalog: asking price for a business, funds to invest for a candidate.
+        headline_usd: s2a ? ((r.kind === 'us' ? s2a.price : s2a.invest_usd) as number) ?? null : null,
+        docs: docProgress(r.kind, r.stage, keys.get(r.id) ?? new Set()),
+        ai_suggestion: ai?.suggestion ?? null,
+        ai_flags: ai ? ai.flags.length + ai.mismatches.length : 0,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+      };
+    }),
+  });
 });
 
 app.get('/cases/:id', async (c) => {
@@ -402,70 +426,110 @@ app.get('/cases/:id', async (c) => {
   return c.json({ case: await caseView(c, row) });
 });
 
+/* ---------- AI first pass ---------- */
+
+async function runReview(env: Env, caseId: string): Promise<void> {
+  const row = await env.DB.prepare('SELECT * FROM cases WHERE id = ?').bind(caseId).first<CaseRow>();
+  if (!row || !env.AI) return;
+  await env.DB.prepare("UPDATE cases SET ai_review_status = 'running' WHERE id = ?").bind(caseId).run();
+  try {
+    const docs = await env.DB.prepare('SELECT item_key, ai_status, ai_result, review FROM documents WHERE case_id = ?')
+      .bind(caseId)
+      .all<{ item_key: string; ai_status: string; ai_result: string | null; review: string }>();
+    const have = new Set(docs.results.map((d) => d.item_key));
+    const s1 = parse<Stage1Result>(row.s1_result);
+    const s2 = parse<Stage2Result>(row.s2_result);
+    const s4 = parse<Stage4Answers>(row.s4_answers);
+    const facts = {
+      kind: row.kind,
+      current_stage: row.stage,
+      name: row.company_name,
+      location: row.location,
+      industry: row.industry,
+      l1_screen: s1 && { rating: s1.rating, answers: s1.findings.map((f) => ({ question: f.topic.en, answer: f.label.en, level: f.level })) },
+      numbers_entered_by_owner: parse(row.s2_answers),
+      health: s2 && { rating: s2.rating, metrics: s2.metrics.map((m) => ({ metric: m.label.en, value: m.value, grade: m.grade })) },
+      owners: s4?.owners,
+      disclosures: s4 && DISCLOSURES.map((d) => ({ question: d.label.en, answer: s4.disclosures[d.id] })),
+      documents_missing:
+        row.stage >= 3
+          ? docsFor(row.kind, row.stage)
+              .filter((d) => !d.optional && !have.has(d.key))
+              .map((d) => d.label.en)
+          : [],
+      documents: docs.results.map((d) => {
+        const ai = parse<{ summary: string; concerns: string[]; matches_request: string; key_facts: unknown; period: string }>(d.ai_result);
+        return {
+          requested: docLabel(d.item_key),
+          team_review: d.review,
+          ...(ai ? { matches: ai.matches_request, period: ai.period, summary: ai.summary, key_facts: ai.key_facts, concerns: ai.concerns } : { unread: true }),
+        };
+      }),
+    };
+    const review = { ...(await reviewCase(env, facts)), at: now(), stage: row.stage };
+    await env.DB.prepare("UPDATE cases SET ai_review = ?, ai_review_status = 'done' WHERE id = ?").bind(JSON.stringify(review), caseId).run();
+  } catch (err) {
+    console.error('review failed', caseId, err);
+    await env.DB.prepare("UPDATE cases SET ai_review_status = 'failed' WHERE id = ?").bind(caseId).run();
+  }
+}
+
+/* ---------- Owner steps ---------- */
+
 app.put('/cases/:id/stage1', async (c) => {
   const row = await loadCase(c, c.req.param('id'));
-  if (row.stage > 2 || row.status === 'decided') throw new HttpError(409, 'stage_locked', 'This step can no longer be changed.');
+  if (row.stage > 2 || !open_(row)) throw new HttpError(409, 'stage_locked', 'This step can no longer be changed.');
   const { answers } = z.object({ answers: z.record(z.string(), z.string()) }).parse(await c.req.json());
-  if (!stage1Complete(answers)) throw new HttpError(400, 'incomplete');
-  const result = scoreStage1(answers as Stage1Answers);
+  if (!stage1Complete(row.kind, answers)) throw new HttpError(400, 'incomplete');
+  const result = scoreStage1(row.kind, answers as Stage1Answers);
+  // A changed answer re-opens the gate, so the health result is cleared and re-scored on the next save.
   await c.env.DB.prepare('UPDATE cases SET s1_answers = ?, s1_result = ?, stage = ?, status = ?, s2_result = NULL, updated_at = ? WHERE id = ?')
     .bind(JSON.stringify(answers), JSON.stringify(result), result.passed ? 2 : 1, result.passed ? 'active' : 'stopped', now(), row.id)
     .run();
   await audit(c, 'stage1.submitted', row.id, { rating: result.rating });
+  c.executionCtx.waitUntil(runReview(c.env, row.id));
   return c.json({ result });
 });
 
 app.put('/cases/:id/stage2', async (c) => {
   const row = await loadCase(c, c.req.param('id'));
-  if (row.stage < 2 || row.stage > 3 || row.status === 'decided') throw new HttpError(409, 'stage_locked', 'This step is not open.');
+  if (row.stage < 2 || row.stage > 3 || !open_(row)) throw new HttpError(409, 'stage_locked', 'This step is not open.');
   const body = z
     .object({
       company_name: z.string().trim().min(1).max(160),
-      country: z.string().trim().min(2).max(80),
-      currency: z.enum(CURRENCIES as [string, ...string[]]),
+      location: z.string().trim().min(2).max(120),
+      industry: z.string().trim().min(2).max(120),
       answers: z.record(z.string(), z.union([z.number().finite().min(-1e13).max(1e13), z.string().max(40)])),
     })
     .parse(await c.req.json());
-  const plan = planOf(row);
-  if (!stage2Complete(body.answers as Stage2Answers, plan)) throw new HttpError(400, 'incomplete');
-  const result = scoreStage2(body.answers as Stage2Answers, plan);
+  if (!stage2Complete(row.kind, body.answers as Stage2Answers)) throw new HttpError(400, 'incomplete');
+  const result = scoreStage2(row.kind, body.answers as Stage2Answers);
+  const stage = result.passed ? Math.max(row.stage, 3) : 2;
   await c.env.DB.prepare(
-    'UPDATE cases SET company_name = ?, country = ?, currency = ?, s2_answers = ?, s2_result = ?, stage = ?, status = ?, updated_at = ? WHERE id = ?',
+    'UPDATE cases SET company_name = ?, location = ?, industry = ?, s2_answers = ?, s2_result = ?, stage = ?, status = ?, updated_at = ? WHERE id = ?',
   )
-    .bind(
-      body.company_name,
-      body.country,
-      body.currency,
-      JSON.stringify(body.answers),
-      JSON.stringify(result),
-      result.passed ? 3 : 2,
-      result.passed ? 'active' : 'stopped',
-      now(),
-      row.id,
-    )
+    .bind(body.company_name, body.location, body.industry, JSON.stringify(body.answers), JSON.stringify(result), stage, result.passed ? 'active' : 'stopped', now(), row.id)
     .run();
   await audit(c, 'stage2.submitted', row.id, { rating: result.rating });
+  c.executionCtx.waitUntil(runReview(c.env, row.id));
   return c.json({ result });
 });
 
 app.post('/cases/:id/sign', async (c) => {
   const u = requireUser(c);
   const row = await loadCase(c, c.req.param('id'));
-  if (row.user_id !== u.id) throw new HttpError(403, 'forbidden', 'Only the applicant can sign.');
-  const body = z
-    .object({ kind: z.enum(['nda', 'background_consent']), name: Name, lang: LangZ, agree: z.literal(true) })
-    .parse(await c.req.json());
-  if (row.stage < (body.kind === 'nda' ? 3 : 4)) throw new HttpError(409, 'stage_locked');
-  const text = (body.kind === 'nda' ? ndaText : consentText)(c.env.LEGAL_ENTITY)[body.lang];
-  const version = body.kind === 'nda' ? NDA_VERSION : CONSENT_VERSION;
+  if (row.user_id !== u.id) throw new HttpError(403, 'forbidden', 'Only the account owner can sign.');
+  const body = z.object({ name: Name, lang: LangZ, agree: z.literal(true) }).parse(await c.req.json());
+  if (row.stage < 3) throw new HttpError(409, 'stage_locked');
+  const text = ndaText(c.env.LEGAL_ENTITY)[body.lang];
   const res = await c.env.DB.prepare(
     `INSERT INTO signatures (id, case_id, user_id, kind, version, lang, text_sha256, signer_name, signer_email, ip, user_agent, signed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(case_id, kind) DO NOTHING`,
+     VALUES (?, ?, ?, 'nda', ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(case_id, kind) DO NOTHING`,
   )
-    .bind(randomToken(16), row.id, u.id, body.kind, version, body.lang, await sha256Hex(text), body.name, u.email, c.get('ip'), (c.req.header('User-Agent') ?? '').slice(0, 300), now())
+    .bind(randomToken(16), row.id, u.id, NDA_VERSION, body.lang, await sha256Hex(text), body.name, u.email, c.get('ip'), (c.req.header('User-Agent') ?? '').slice(0, 300), now())
     .run();
   if (res.meta.changes === 0) throw new HttpError(409, 'already_signed');
-  await audit(c, `signed.${body.kind}`, row.id, { version, name: body.name });
+  await audit(c, 'signed.nda', row.id, { version: NDA_VERSION, name: body.name });
   return c.json({ ok: true });
 });
 
@@ -494,6 +558,46 @@ app.put('/cases/:id/folder', async (c) => {
   return c.json({ ok: true });
 });
 
+app.put('/cases/:id/stage4', async (c) => {
+  const row = await loadCase(c, c.req.param('id'));
+  if (row.stage !== 4 || row.status !== 'active') throw new HttpError(409, 'stage_locked', 'This step is not open.');
+  const body = z
+    .object({
+      owners: z
+        .array(z.object({ name: z.string().trim().min(2).max(120), pct: z.number().finite().gt(0).max(100), role: z.string().trim().max(80).default('') }))
+        .min(1)
+        .max(20),
+      disclosures: z.record(z.string(), z.enum(['yes', 'no'])),
+    })
+    .parse(await c.req.json());
+  if (!stage4Complete(body)) throw new HttpError(400, 'incomplete', 'List every owner, with shares adding up to 100% at most, and answer each question.');
+  await c.env.DB.prepare('UPDATE cases SET s4_answers = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(body), now(), row.id).run();
+  await audit(c, 'stage4.saved', row.id, { owners: body.owners.length });
+  return c.json({ ok: true });
+});
+
+/** The owner hands the current document stage to the team. */
+app.post('/cases/:id/submit', async (c) => {
+  const row = await loadCase(c, c.req.param('id'));
+  if (row.stage < 3 || row.status !== 'active') throw new HttpError(409, 'stage_locked', 'There is nothing to submit right now.');
+  const signed = await c.env.DB.prepare("SELECT 1 AS x FROM signatures WHERE case_id = ? AND kind = 'nda'").bind(row.id).first();
+  if (!signed) throw new HttpError(409, 'nda_required', 'Sign the confidentiality agreement first.');
+  if (row.stage === 4 && !stage4Complete(parse<Stage4Answers>(row.s4_answers))) {
+    throw new HttpError(400, 'incomplete', 'Save the owners and the disclosure answers first.');
+  }
+  const docs = await c.env.DB.prepare('SELECT DISTINCT item_key FROM documents WHERE case_id = ?').bind(row.id).all<{ item_key: string }>();
+  const have = new Set(docs.results.map((d) => d.item_key));
+  const missing = docsFor(row.kind, row.stage).filter((d) => d.stage === row.stage && !d.optional && !have.has(d.key));
+  // A shared folder can stand in for uploads: the team files documents from it.
+  if (missing.length > 0 && !row.folder_url) {
+    throw new HttpError(400, 'docs_missing', `Still needed: ${missing.map((d) => d.label.en).join('; ')}. Upload them or link a shared folder.`);
+  }
+  await c.env.DB.prepare("UPDATE cases SET status = 'review', team_note = NULL, updated_at = ? WHERE id = ?").bind(now(), row.id).run();
+  await audit(c, 'stage.submitted', row.id, { stage: row.stage, missing: missing.length });
+  c.executionCtx.waitUntil(runReview(c.env, row.id));
+  return c.json({ ok: true });
+});
+
 /* ------------------------------------------------------------------ */
 /* Documents                                                           */
 /* ------------------------------------------------------------------ */
@@ -519,8 +623,7 @@ async function runAnalysis(env: Env, docId: string): Promise<void> {
   try {
     const data = await getFile(env, doc.storage_key);
     if (!data) throw new Error('file missing');
-    const requested = DOCS.find((d) => d.key === doc.item_key)?.label.en ?? doc.item_key;
-    const result = await analyzeDocument(env, { requested, filename: doc.filename, mime: doc.mime, data });
+    const result = await analyzeDocument(env, { requested: docLabel(doc.item_key), filename: doc.filename, mime: doc.mime, data });
     await env.DB.prepare("UPDATE documents SET ai_status = 'done', ai_result = ? WHERE id = ?").bind(JSON.stringify(result), docId).run();
   } catch (err) {
     console.error('analysis failed', docId, err);
@@ -531,8 +634,8 @@ async function runAnalysis(env: Env, docId: string): Promise<void> {
 app.post('/cases/:id/documents', async (c) => {
   const u = requireUser(c);
   const row = await loadCase(c, c.req.param('id'));
-  if (row.stage < 3) throw new HttpError(409, 'stage_locked', 'Documents open after the business snapshot.');
-  if (row.status === 'decided') throw new HttpError(409, 'case_closed');
+  if (row.stage < 3) throw new HttpError(409, 'stage_locked', 'Documents open after the business health step.');
+  if (row.status === 'approved' || row.status === 'declined') throw new HttpError(409, 'case_closed', 'This evaluation is closed.');
   const signed = await c.env.DB.prepare("SELECT 1 AS x FROM signatures WHERE case_id = ? AND kind = 'nda'").bind(row.id).first();
   if (!signed) throw new HttpError(409, 'nda_required', 'Sign the confidentiality agreement first.');
   await rateLimit(c.env, `upload:${u.id}`, 120, 3600);
@@ -542,7 +645,7 @@ app.post('/cases/:id/documents', async (c) => {
   const file = form.file;
   const itemKey = String(form.item_key ?? '');
   if (!(file instanceof File)) throw new HttpError(400, 'no_file');
-  const item = docsFor(planOf(row), row.stage).find((d) => d.key === itemKey);
+  const item = docsFor(row.kind, row.stage).find((d) => d.key === itemKey);
   if (!item) throw new HttpError(400, 'bad_item', 'That document is not part of the current step.');
   if (file.size === 0) throw new HttpError(400, 'empty_file', 'That file is empty.');
   if (file.size > MAX_FILE_BYTES) throw new HttpError(413, 'too_large', 'Files can be up to 15 MB.');
@@ -586,8 +689,8 @@ app.get('/documents/:id/file', async (c) => {
 app.delete('/documents/:id', async (c) => {
   const u = requireUser(c);
   const { doc, row } = await loadDoc(c, c.req.param('id'));
-  if (u.role !== 'staff' && (doc.review !== 'received' || row.status === 'decided')) {
-    throw new HttpError(409, 'locked', 'This document has been reviewed and can no longer be removed.');
+  if (u.role !== 'staff' && (doc.review !== 'received' || row.status !== 'active')) {
+    throw new HttpError(409, 'locked', 'This document is under review and can no longer be removed.');
   }
   await deleteFile(c.env, doc.storage_key);
   await c.env.DB.prepare('DELETE FROM documents WHERE id = ?').bind(doc.id).run();
@@ -613,101 +716,66 @@ app.put('/documents/:id/review', async (c) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Staff actions                                                       */
+/* Team actions                                                        */
 /* ------------------------------------------------------------------ */
 
-app.post('/cases/:id/override', async (c) => {
+/**
+ * One endpoint for every gate decision:
+ *   approve  pass the current gate. At the last stage this approves the record into the catalog.
+ *            On a stopped record it overrides the failed gate, so a note is required.
+ *   return   send it back to the owner with a note.
+ *   decline  close it with a note.
+ *   reopen   put a closed record back in progress.
+ */
+app.post('/cases/:id/decide', async (c) => {
   const u = requireStaff(c);
   const row = await loadCase(c, c.req.param('id'));
-  if (row.status !== 'stopped') throw new HttpError(409, 'not_stopped');
-  const { reason } = z.object({ reason: z.string().trim().min(10).max(600) }).parse(await c.req.json());
-  const overrides = parse<unknown[]>(row.overrides) ?? [];
-  overrides.push({ stage: row.stage, reason, by: u.email, at: now() });
-  await c.env.DB.prepare("UPDATE cases SET status = 'active', stage = ?, overrides = ?, updated_at = ? WHERE id = ?")
-    .bind(row.stage + 1, JSON.stringify(overrides), now(), row.id)
-    .run();
-  await audit(c, 'gate.overridden', row.id, { stage: row.stage, reason });
-  return c.json({ ok: true });
-});
+  const body = z.object({ action: z.enum(['approve', 'return', 'decline', 'reopen']), note: z.string().trim().max(1000).default('') }).parse(await c.req.json());
+  const closed = row.status === 'approved' || row.status === 'declined';
 
-app.post('/cases/:id/advance', async (c) => {
-  requireStaff(c);
-  const row = await loadCase(c, c.req.param('id'));
-  if (row.stage !== 3 || row.status !== 'active') throw new HttpError(409, 'cannot_advance');
-  await c.env.DB.prepare('UPDATE cases SET stage = 4, updated_at = ? WHERE id = ?').bind(now(), row.id).run();
-  await audit(c, 'stage.advanced', row.id, { to: 4 });
-  return c.json({ ok: true });
-});
-
-app.put('/cases/:id/checks/:key', async (c) => {
-  const u = requireStaff(c);
-  const row = await loadCase(c, c.req.param('id'));
-  const key = c.req.param('key');
-  if (!CHECK_KEYS.has(key)) throw new HttpError(400, 'bad_check');
-  if (row.stage < 4) throw new HttpError(409, 'stage_locked');
-  const body = z.object({ status: z.enum(['pending', 'in_progress', 'clear', 'issue']), note: z.string().trim().max(1000).default('') }).parse(await c.req.json());
-  await c.env.DB.prepare(
-    `INSERT INTO checks (case_id, check_key, status, note, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(case_id, check_key) DO UPDATE SET status = excluded.status, note = excluded.note, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
-  )
-    .bind(row.id, key, body.status, body.note || null, u.email, now())
-    .run();
-  await audit(c, 'check.updated', row.id, { key, status: body.status });
-  return c.json({ ok: true });
-});
-
-app.put('/cases/:id/decision', async (c) => {
-  const u = requireStaff(c);
-  const row = await loadCase(c, c.req.param('id'));
-  const body = z
-    .object({
-      verdict: z.enum(['proceed', 'conditions', 'stop']),
-      summary: z.string().trim().min(1).max(4000),
-      conditions: z.array(z.string().trim().min(1).max(300)).max(12).default([]),
-      release: z.boolean(),
-    })
-    .parse(await c.req.json());
-  const decision = { verdict: body.verdict, summary: body.summary, conditions: body.conditions, by: u.email, at: now() };
-  if (body.release) {
-    await c.env.DB.prepare("UPDATE cases SET decision = ?, decision_released = 1, status = 'decided', stage = 5, updated_at = ? WHERE id = ?")
-      .bind(JSON.stringify(decision), now(), row.id)
-      .run();
+  let stage = row.stage;
+  let status: Status = row.status;
+  if (body.action === 'reopen') {
+    if (!closed) throw new HttpError(409, 'not_closed');
+    status = 'active';
   } else {
-    await c.env.DB.prepare('UPDATE cases SET decision = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(decision), now(), row.id).run();
+    if (closed) throw new HttpError(409, 'case_closed', 'Reopen this record first.');
+    if (body.action !== 'approve' || row.status === 'stopped') {
+      if (body.note.length < 5) throw new HttpError(400, 'note_required', 'Add a short note explaining the decision.');
+    }
+    if (body.action === 'approve') {
+      // Stages 1 and 2 pass on their scores. The team only steps in to override a failed one.
+      if (row.stage < 3 && row.status !== 'stopped') throw new HttpError(409, 'not_ready', 'This stage is scored automatically.');
+      if (row.stage >= LAST_STAGE) status = 'approved';
+      else {
+        stage = row.stage + 1;
+        status = 'active';
+      }
+    } else if (body.action === 'return') status = 'active';
+    else status = 'declined';
   }
-  await audit(c, body.release ? 'decision.released' : 'decision.drafted', row.id, { verdict: body.verdict });
+
+  const history = parse<unknown[]>(row.history) ?? [];
+  history.push({ at: now(), by: u.email, action: body.action, stage: row.stage, from: row.status, note: body.note });
+  // The owner sees the note when something is asked of them or the record is closed.
+  const teamNote = body.action === 'return' || body.action === 'decline' ? body.note : null;
+  await c.env.DB.prepare('UPDATE cases SET stage = ?, status = ?, team_note = ?, history = ?, updated_at = ? WHERE id = ?')
+    .bind(stage, status, teamNote, JSON.stringify(history.slice(-100)), now(), row.id)
+    .run();
+  await audit(c, `gate.${body.action}`, row.id, { stage: row.stage, from: row.status, note: body.note });
   return c.json({ ok: true });
 });
 
-app.post('/cases/:id/brief', async (c) => {
+app.post('/cases/:id/ai-review', async (c) => {
   const u = requireStaff(c);
   const row = await loadCase(c, c.req.param('id'));
-  await rateLimit(c.env, `brief:${u.id}`, 60, 3600);
-  const docs = await c.env.DB.prepare("SELECT item_key, ai_result, review FROM documents WHERE case_id = ? AND ai_status = 'done'")
-    .bind(row.id)
-    .all<{ item_key: string; ai_result: string; review: string }>();
-  const checks = await c.env.DB.prepare('SELECT check_key, status, note FROM checks WHERE case_id = ?').bind(row.id).all();
-  const s1 = parse<{ rating: string; findings: { id: string; level: string; label: { en: string } }[] }>(row.s1_result);
-  const s2 = parse<{ rating: string; metrics: { label: { en: string }; value: string; grade: string; side: string }[] }>(row.s2_result);
-  const facts = {
-    us_plan: planOf(row),
-    country: row.country,
-    l1_quick_check: s1 && { rating: s1.rating, findings: s1.findings.map((f) => ({ topic: f.id, level: f.level, answer: f.label.en })) },
-    business_snapshot: s2 && { rating: s2.rating, metrics: s2.metrics.map((m) => ({ side: m.side, metric: m.label.en, value: m.value, grade: m.grade })) },
-    documents: docs.results.map((d) => {
-      const ai = JSON.parse(d.ai_result) as { summary: string; concerns: string[]; matches_request: string };
-      return { requested: DOCS.find((x) => x.key === d.item_key)?.label.en, review: d.review, matches: ai.matches_request, summary: ai.summary, concerns: ai.concerns };
-    }),
-    verification: checks.results.map((k) => ({ ...k, check: CHECKS.find((x) => x.key === k.check_key)?.label.en })),
-  };
-  try {
-    const brief = await draftBrief(c.env, facts);
-    await audit(c, 'brief.drafted', row.id);
-    return c.json({ brief });
-  } catch (err) {
-    console.error('brief failed', err);
-    throw new HttpError(503, 'ai_unavailable', 'The AI service did not respond. Try again.');
-  }
+  if (!c.env.AI) throw new HttpError(503, 'ai_unavailable', 'AI is not available.');
+  await rateLimit(c.env, `review:${u.id}`, 120, 3600);
+  await runReview(c.env, row.id);
+  const after = await c.env.DB.prepare('SELECT ai_review_status FROM cases WHERE id = ?').bind(row.id).first<{ ai_review_status: string }>();
+  if (after?.ai_review_status !== 'done') throw new HttpError(503, 'ai_unavailable', 'The AI service did not respond. Try again.');
+  await audit(c, 'ai.reviewed', row.id);
+  return c.json({ ok: true });
 });
 
 app.get('/cases/:id/audit', async (c) => {
