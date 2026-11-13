@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="10x BR">
+  <defs>
+    <linearGradient id="aurora" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#34E0C2"/>
+      <stop offset="0.55" stop-color="#3B9BFF"/>
+      <stop offset="1" stop-color="#7B6CFF"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#18233F"/>
+      <stop offset="1" stop-color="#070B14"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(0 0) scale(1)">
+    <rect width="64" height="64" rx="15" fill="url(#tile)"/>
+    <rect width="64" height="64" rx="15" fill="url(#sheen)"/>
+    <rect x="1" y="1" width="62" height="62" rx="14" fill="none" stroke="url(#aurora)" stroke-width="2"/>
+    <path d="M19.5 19.5L45 45" stroke="#F2F6FF" stroke-width="6.5"/>
+    <path d="M22 42L42 22" stroke="#0F182C" stroke-width="11.5"/>
+    <path d="M18.5 45.5L44 20" stroke="url(#aurora)" stroke-width="6.5"/>
+    <path d="M28.5 18.25H45.75V35.5" fill="none" stroke="url(#aurora)" stroke-width="6.5" stroke-linejoin="miter"/>
+  </g>
+</svg>
