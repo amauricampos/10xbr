@@ -15,7 +15,7 @@ Both tracks use the same four stages. Each one opens only when the one before is
 
 | Stage | What the owner does | Time | Gate |
 | --- | --- | --- | --- |
-| 1. L-1 compliance | Nine single-tap questions, one per L-1A requirement ([docs/l1-requirements.md](docs/l1-requirements.md)), then name and email before the result is shown | 2 min | Compliant, Gaps to fix or Not compliant. Scored automatically. Answers are final. Not compliant stops the record |
+| 1. L-1 compliance | Single-tap questions (nine as shipped), one per L-1A requirement ([docs/l1-requirements.md](docs/l1-requirements.md)), then name and email before the result is shown | 2 min | Compliant, Gaps to fix or Not compliant. Scored automatically. Answers are final. Not compliant stops the record |
 | 2. Business health | When the business started, then about ten numbers in named sections: revenue for each calendar year since then (up to three, including the current year to date), earnings, staff, price or funds | 5 min | Healthy, Watch or Weak. Scored automatically. Weak stops the record |
 | 3. Core documents | Signs the NDA in the app, then uploads five documents or links a shared folder | 1 to 3 days | AI reads each file and compares it with the answers. The team approves |
 | 4. Owners and verification | Lists the owners, answers four disclosures, uploads the remaining documents | 1 to 2 weeks | The team approves. The record enters the catalog |
@@ -35,11 +35,22 @@ Questions, thresholds and scoring live in `shared/process.ts`. The document list
 `/admin` is for team members marked as admin (the first account created at `/setup` is one):
 
 - **Overview**: a funnel per track, from questions answered to catalog, plus what is waiting for the team, and CSV exports of leads and records.
+- **Questionnaires**: edit the L-1 screen for each track, the business health form for each track, and the final disclosures. See below.
 - **Team**: invite by email (single-use link, valid seven days), make or remove admins, reset two-step sign-in, deactivate.
 - **Owner accounts**: every owner with their record, and deactivate.
 - **Activity**: the full audit log.
 
 Reviewers (team members who are not admins) see `/staff` only.
+
+### Editing the questionnaires
+
+Each questionnaire is edited in both languages, reordered by dragging (or with the arrow keys on the grip), and saved as a new version. The shipped questions live in `shared/process.ts`; saved edits are stored in the `forms` table and applied on top.
+
+- **L-1 screen**: add, remove and reorder questions and answers; set each answer to Met, Needs attention or Not met and write what the scorecard says for it. One Not met still stops the record.
+- **Business health**: add, rename, remove and reorder sections and questions. The built-in questions feed the score: they can be reworded, moved or removed, but their answer type is fixed, and a result is left out of the score while one of its questions is off the form. The revenue questions always stay. Added questions can be a number, percent, amount, choice or text, required or optional; a choice whose answers are graded Good, Fair or Weak counts toward the score, and the rest are listed under the result for the team.
+- **Disclosures**: add, remove, reword and reorder the yes/no questions.
+
+A save applies to everyone who answers from then on. Scorecards and health results already given are stored as shown, so they keep their wording and score. "Reset to original" and "Earlier versions" load a version into the editor; nothing changes until it is saved. A form that cannot be answered or passed (no questions, an empty section, a question with fewer than two answers, every answer Not met) is refused.
 
 ### When the L-1 screen fails
 
@@ -54,7 +65,7 @@ An owner whose record is stopped or declined sees the result and the team's note
 
 ## Scorecard email
 
-After the nine questions the owner gives a name and email and sees a scorecard: how many of the nine requirements are met, and each one with its status. The same scorecard is emailed through [Resend](https://resend.com) when these are set:
+After the questions the owner gives a name and email and sees a scorecard: how many of the requirements are met, and each one with its status. The same scorecard is emailed through [Resend](https://resend.com) when these are set:
 
 ```bash
 npx wrangler secret put RESEND_API_KEY
