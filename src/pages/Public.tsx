@@ -43,7 +43,7 @@ export function Landing() {
   ];
   const notes = [
     t('Answer for your business as it is today.', 'Responda sobre o negócio como ele é hoje.'),
-    t('Be as accurate as you can. Your result depends on it.', 'Seja o mais preciso possível. O resultado depende disso.'),
+    t('Be as accurate as you can.', 'Seja o mais preciso possível.'),
     t('Private. Only our team sees it.', 'Privado. Só a nossa equipe vê.'),
   ];
   return (
