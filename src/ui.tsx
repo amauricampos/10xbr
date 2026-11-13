@@ -5,7 +5,7 @@ import { api } from './api';
 import { useSession } from './session';
 
 export function Logo({ height = 30 }: { height?: number }) {
-  return <img className="logo" src="/brand/logo-on-dark.svg" alt="10xBR" style={{ height }} />;
+  return <img className="logo" src="/brand/logo-on-dark.svg" alt="10x BR" style={{ height }} />;
 }
 
 export function LangToggle() {
@@ -28,7 +28,7 @@ export function Nav({ children }: { children?: ReactNode }) {
   return (
     <header className="nav">
       <div className="wrap row between">
-        <Link to={user ? '/app' : '/'} aria-label="10xBR home">
+        <Link to={user ? '/app' : '/'} aria-label="10x BR home">
           <Logo />
         </Link>
         <div className="row" style={{ '--gap': '4px' } as React.CSSProperties}>
@@ -102,8 +102,8 @@ export function Disclaimer() {
       <ShieldCheck size={14} style={{ flex: 'none', marginTop: 2 }} />
       <span>
         {t(
-          '10xBR is a screening tool, not legal or investment advice. Only a licensed immigration attorney can advise on visa eligibility.',
-          'A 10xBR é uma ferramenta de triagem, não aconselhamento jurídico ou de investimento. Somente um advogado de imigração habilitado pode orientar sobre elegibilidade a vistos.',
+          '10x BR is a screening tool, not legal or investment advice. Only a licensed immigration attorney can advise on visa eligibility.',
+          'A 10x BR é uma ferramenta de triagem, não aconselhamento jurídico ou de investimento. Somente um advogado de imigração habilitado pode orientar sobre elegibilidade a vistos.',
         )}
       </span>
     </p>
@@ -125,6 +125,9 @@ const METRIC_PT: [RegExp, string][] = [
   [/ yr$/, ' anos'],
   [/ mo$/, ' meses'],
   [/× profit$/, '× lucro'],
+  [/× earnings$/, '× lucro'],
+  [/^Under 20%$/, 'Menos de 20%'],
+  [/^Cash only$/, 'Só à vista'],
   [/ h\/wk$/, ' h/sem'],
   [/^Current$/, 'Em dia'],
   [/^Payment plan$/, 'Parcelamento'],

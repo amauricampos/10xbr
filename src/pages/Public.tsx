@@ -28,7 +28,7 @@ export function Landing() {
   if (user) return <Navigate to="/app" replace />;
   const facts = [
     { icon: Clock, text: t('2 minutes', '2 minutos') },
-    { icon: MousePointerClick, text: t('8 questions', '8 perguntas') },
+    { icon: MousePointerClick, text: t('9 questions', '9 perguntas') },
     { icon: FileX, text: t('No documents', 'Sem documentos') },
   ];
   const tracks = [
@@ -88,7 +88,7 @@ export function Landing() {
               <span className="stage-num">1</span>
               <div className="grow">
                 <div className="row between" style={{ alignItems: 'baseline' }}>
-                  <strong>{t('Eight quick questions', 'Oito perguntas rápidas')}</strong>
+                  <strong>{t('Nine quick questions', 'Nove perguntas rápidas')}</strong>
                   <span className="tiny faint">{t('2 min', '2 min')}</span>
                 </div>
                 <p className="small muted">{t('One tap each. You get your result right away.', 'Um toque cada. O resultado sai na hora.')}</p>
@@ -288,7 +288,7 @@ export function SignUp() {
   if (!config.openSignup) {
     return (
       <AuthShell title={t('Sign-up is by invitation', 'Cadastro somente por convite')}>
-        <p className="muted">{t('Contact 10xBR to get started.', 'Entre em contato com a 10xBR para começar.')}</p>
+        <p className="muted">{t('Contact 10x BR to get started.', 'Entre em contato com a 10x BR para começar.')}</p>
       </AuthShell>
     );
   }

@@ -20,6 +20,7 @@ const assets = [
   { file: 'logo-on-light.svg', label: 'Logo, light backgrounds' },
   { file: 'mark.svg', label: 'Mark' },
   { file: 'mark-mono.svg', label: 'Mark, one color' },
+  { file: 'mark-512.png', label: 'Mark, PNG 512' },
 ];
 
 function Section({ n, title, children }: { n: string; title: string; children: React.ReactNode }) {
@@ -40,12 +41,12 @@ export function Brand() {
       <Nav />
       <main className="wrap stack" style={{ padding: '56px 0 96px', '--gap': '64px' } as React.CSSProperties}>
         <header className="stack" style={{ '--gap': '16px', maxWidth: 720 } as React.CSSProperties}>
-          <p className="eyebrow">Brand guidelines · v1.0</p>
+          <p className="eyebrow">Brand guidelines · v2.0</p>
           <h1>
             Clarity, <span className="gradient-text">stage by stage.</span>
           </h1>
           <p className="muted" style={{ fontSize: '1.15rem' }}>
-            10xBR helps business owners find out whether a move to the United States is feasible before they commit to it. The brand is calm, exact and
+            10x BR helps business owners find out whether a move to the United States is feasible before they commit to it. The brand is calm, exact and
             transparent, like good glass: you see straight through to the answer.
           </p>
         </header>
@@ -53,10 +54,10 @@ export function Brand() {
         <Section n="01" title="Logo">
           <div className="grid two">
             <div className="logo-tile" style={{ background: '#070B14' }}>
-              <img src="/brand/logo-on-dark.svg" alt="10xBR logo on dark" height={64} />
+              <img src="/brand/logo-on-dark.svg" alt="10x BR logo on dark" height={64} />
             </div>
             <div className="logo-tile" style={{ background: '#F4F7FB' }}>
-              <img src="/brand/logo-on-light.svg" alt="10xBR logo on light" height={64} />
+              <img src="/brand/logo-on-light.svg" alt="10x BR logo on light" height={64} />
             </div>
           </div>
           <div className="grid three">
@@ -64,13 +65,13 @@ export function Brand() {
               <img src="/brand/mark.svg" alt="" width={72} height={72} />
               <h3>The mark</h3>
               <p className="small muted">
-                An × whose rising stroke becomes an arrow: the multiplier in 10x, and the move across a border. It sits on an aurora glass tile.
+                An × whose rising stroke becomes an arrow: the multiplier in 10x, and the move across a border. The arrow carries the aurora gradient and passes over the white stroke, on a navy glass tile with an aurora edge.
               </p>
             </div>
             <div className="glass pad stack">
               <h3>The wordmark</h3>
               <p className="small muted">
-                Sora. “10x” in Bold, “BR” in Regular and tinted Azure. Always written 10xBR: lowercase x, capital BR, no space.
+                Sora. “10x” in ExtraBold, “BR” in SemiBold and tinted Azure. Always written 10x BR: lowercase x, a space, capital BR.
               </p>
             </div>
             <div className="glass pad stack">
@@ -84,6 +85,7 @@ export function Brand() {
             <h3>Do not</h3>
             <ul className="small muted" style={{ margin: 0, paddingLeft: 18, columns: 2, columnGap: 32 }}>
               <li>Recolor the mark or change its gradient.</li>
+              <li>Put the gradient on the wordmark.</li>
               <li>Stretch, rotate or add shadows.</li>
               <li>Place the color logo on busy photos.</li>
               <li>Set the wordmark in another typeface.</li>

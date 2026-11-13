@@ -14,7 +14,7 @@ export type Env = {
   SETUP_TOKEN?: string;
   /** Resend API key. Scorecard emails are sent only when this and MAIL_FROM are set. */
   RESEND_API_KEY?: string;
-  /** Sender, e.g. "10xBR <hello@10xbr.com>". The domain must be verified with Resend. */
+  /** Sender, e.g. "10x BR <hello@10xbr.com>". The domain must be verified with Resend. */
   MAIL_FROM?: string;
   MAIL_REPLY_TO?: string;
 };

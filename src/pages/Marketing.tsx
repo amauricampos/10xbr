@@ -48,7 +48,7 @@ export function MarketingLanding() {
     {
       time: t('2 min', '2 min'),
       title: t('See if you qualify', 'Veja se você se qualifica'),
-      text: t('Eight one-tap questions. You get the answer right away.', 'Oito perguntas de um toque. A resposta sai na hora.'),
+      text: t('Nine one-tap questions. You get the answer right away.', 'Nove perguntas de um toque. A resposta sai na hora.'),
     },
     {
       time: t('5 min', '5 min'),
@@ -109,7 +109,7 @@ export function MarketingLanding() {
             {t('See if my business qualifies', 'Ver se o meu negócio se qualifica')} <ArrowRight size={18} />
           </Link>
           <p className="tiny faint" style={{ marginTop: 14 }}>
-            {t('Two minutes. Eight questions. Confidential.', 'Dois minutos. Oito perguntas. Confidencial.')}
+            {t('Two minutes. Nine questions. Confidential.', 'Dois minutos. Nove perguntas. Confidencial.')}
           </p>
         </section>
 
@@ -205,7 +205,7 @@ export function MarketingLanding() {
         <div className="wrap stack">
           <Disclaimer />
           <div className="row between wrapping">
-            <span>© {new Date().getFullYear()} 10xBR</span>
+            <span>© {new Date().getFullYear()} 10x BR</span>
             <Link to="/brand">{t('Brand', 'Marca')}</Link>
           </div>
         </div>

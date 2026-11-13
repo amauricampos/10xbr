@@ -94,8 +94,8 @@ export function Stage1ResultView({ kind, result }: { kind: Kind; result: Stage1R
                   <Icon size={14} />
                 </span>
                 <div className="grow">
-                  <div className="tiny faint">{tl(f.topic)}</div>
-                  <div style={{ fontWeight: 600 }}>{tl(f.label)}</div>
+                  <div style={{ fontWeight: 600 }}>{tl(f.topic)}</div>
+                  <div className="small faint">{tl(f.label)}</div>
                   {f.level !== 'pass' && f.note && <div className="muted small">{tl(f.note)}</div>}
                 </div>
                 <Chip tone={tone[f.level]}>{status[f.level]}</Chip>

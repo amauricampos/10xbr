@@ -1,12 +1,12 @@
-# What the best platforms do, and what 10xBR takes from them
+# What the best platforms do, and what 10x BR takes from them
 
-This is the short version of the platform review behind the 10xBR design. Product details change often, so treat the descriptions as a snapshot and check each vendor's site before relying on a specific feature.
+This is the short version of the platform review behind the 10x BR design. Product details change often, so treat the descriptions as a snapshot and check each vendor's site before relying on a specific feature.
 
 ## Immigration intake
 
-| Platform | What it does well | What 10xBR takes |
+| Platform | What it does well | What 10x BR takes |
 | --- | --- | --- |
-| Boundless | Plain-language questions, one decision per screen, an eligibility check before any payment or account | Stage 1 is eight single-tap questions with a result before sign-up |
+| Boundless | Plain-language questions, one decision per screen, an eligibility check before any payment or account | Stage 1 is nine single-tap questions with a result before sign-up |
 | Alma | Fast, concierge-style intake for business visas with attorney review behind a clean client view | One status per record, and a person on the team approves stages 3 and 4 |
 | Docketwise | Smart forms that reuse one answer across many forms, plus a client portal for document requests | Answers from stages 1 and 2 decide which documents are requested later |
 | LegalPad, Deel Immigration | Company-side case tracking for founders and employers | The record is about a company, not only a person |
@@ -15,7 +15,7 @@ Shared pattern: ask the disqualifying questions first, in plain language, and ne
 
 ## Small-business M&A and diligence
 
-| Platform | What it does well | What 10xBR takes |
+| Platform | What it does well | What 10x BR takes |
 | --- | --- | --- |
 | Acquire.com | A handful of headline metrics per listing, an NDA before details, built-in e-signature | Stage 2 uses a few metrics; the NDA is signed in-app before any document is shared |
 | Baton | Free valuation from a short questionnaire using SDE and multiples | A U.S. business is judged on trend, SDE, asking multiple, staff, lease and owner dependence, nothing more |
@@ -26,7 +26,7 @@ Shared pattern: three to six numbers are enough to decide whether a deeper look 
 
 ## Data rooms and AI document review
 
-| Platform | What it does well | What 10xBR takes |
+| Platform | What it does well | What 10x BR takes |
 | --- | --- | --- |
 | Datasite, Intralinks | Request lists tied to a folder index, strict permissions, a full audit trail | A fixed checklist from the attorney's list, per-record access, append-only audit log |
 | Papermark, DocSend | Simple sharing with an NDA gate and view tracking | Downloads are logged and always sent as attachments |
@@ -36,7 +36,7 @@ Shared pattern: AI speeds up reading but never decides. Uploaded files are untru
 
 ## Identity, business verification and e-signature
 
-| Platform | What it does well | What 10xBR takes |
+| Platform | What it does well | What 10x BR takes |
 | --- | --- | --- |
 | Persona, Middesk, Alloy | Identity and business checks as discrete, auditable steps with clear outcomes | Verification is a discrete last stage with a logged team decision |
 | Checkr | Consent captured before a background check is ordered | Owner disclosures are collected in stage 4, before any outside check is ordered |

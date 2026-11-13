@@ -20,8 +20,8 @@
     }
   ],
   "vars": {
-    "APP_NAME": "10xBR",
-    "LEGAL_ENTITY": "10xBR",
+    "APP_NAME": "10x BR",
+    "LEGAL_ENTITY": "10x BR",
     "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     "OPEN_SIGNUP": "true"
   }

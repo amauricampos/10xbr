@@ -220,8 +220,8 @@ export function Report() {
               {c.s1_result.findings.map((f) => (
                 <div key={f.id} className="row between small" style={{ alignItems: 'flex-start' }}>
                   <div>
-                    <div className="muted">{tl(f.topic)}</div>
-                    <div style={{ fontWeight: 600 }}>{tl(f.label)}</div>
+                    <div style={{ fontWeight: 600 }}>{tl(f.topic)}</div>
+                    <div className="muted">{tl(f.label)}</div>
                     {f.note && <div className="muted">{tl(f.note)}</div>}
                   </div>
                   <Chip tone={levelTone[f.level]}>{{ pass: t('Pass', 'Ok'), caution: t('Gap', 'Atenção'), fail: t('Fail', 'Falha') }[f.level]}</Chip>

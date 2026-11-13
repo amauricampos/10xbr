@@ -1,4 +1,4 @@
-# 10xBR
+# 10x BR
 
 A simple platform that evaluates existing businesses for L-1 acquisitions, in two independent tracks:
 
@@ -7,7 +7,7 @@ A simple platform that evaluates existing businesses for L-1 acquisitions, in tw
 
 The business owner fills in everything. AI takes the first pass on every answer and document, and a person on the team reviews and decides. Pairing a candidate with a business is a later step and is not built.
 
-10xBR screens for feasibility. It does not give legal or investment advice.
+10x BR screens for feasibility. It does not give legal or investment advice.
 
 ## The four stages
 
@@ -15,7 +15,7 @@ Both tracks use the same four stages. Each one opens only when the one before is
 
 | Stage | What the owner does | Time | Gate |
 | --- | --- | --- | --- |
-| 1. L-1 compliance | Eight single-tap questions from the attorney's L-1 list, then name and email before the result is shown | 2 min | Compliant, Gaps to fix or Not compliant. Scored automatically. Answers are final. Not compliant stops the record |
+| 1. L-1 compliance | Nine single-tap questions, one per L-1A requirement ([docs/l1-requirements.md](docs/l1-requirements.md)), then name and email before the result is shown | 2 min | Compliant, Gaps to fix or Not compliant. Scored automatically. Answers are final. Not compliant stops the record |
 | 2. Business health | About ten numbers: revenue for three years, earnings, staff, price or funds | 5 min | Healthy, Watch or Weak. Scored automatically. Weak stops the record |
 | 3. Core documents | Signs the NDA in the app, then uploads five documents or links a shared folder | 1 to 3 days | AI reads each file and compares it with the answers. The team approves |
 | 4. Owners and verification | Lists the owners, answers four disclosures, uploads the remaining documents | 1 to 2 weeks | The team approves. The record enters the catalog |
@@ -37,11 +37,11 @@ Questions, thresholds and scoring live in `shared/process.ts`. The document list
 
 ## Scorecard email
 
-After the eight questions the owner gives a name and email and sees a scorecard: how many of the eight requirements are met, and each one with its status. The same scorecard is emailed through [Resend](https://resend.com) when these are set:
+After the nine questions the owner gives a name and email and sees a scorecard: how many of the nine requirements are met, and each one with its status. The same scorecard is emailed through [Resend](https://resend.com) when these are set:
 
 ```bash
 npx wrangler secret put RESEND_API_KEY
-npx wrangler secret put MAIL_FROM       # e.g. 10xBR <hello@10xbr.com>, on a domain verified with Resend
+npx wrangler secret put MAIL_FROM       # e.g. 10x BR <hello@10xbr.com>, on a domain verified with Resend
 ```
 
 Without them nothing is sent and the scorecard is shown on screen only. The email links to `/resume/:id`, which reopens the saved result. One address receives at most three scorecards a day.

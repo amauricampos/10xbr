@@ -34,16 +34,16 @@ export function scorecardEmail(o: { kind: Kind; lang: Lang; name: string; result
       ? 'Our team reviews every result and will reach out if there is a path forward.'
       : 'Nossa equipe revisa todo resultado e entrará em contato se houver um caminho.';
   const disclaimer = en
-    ? '10xBR is a screening tool, not legal or investment advice. Only a licensed immigration attorney can advise on visa eligibility.'
-    : 'A 10xBR é uma ferramenta de triagem, não aconselhamento jurídico ou de investimento. Somente um advogado de imigração habilitado pode orientar sobre elegibilidade a vistos.';
+    ? '10x BR is a screening tool, not legal or investment advice. Only a licensed immigration attorney can advise on visa eligibility.'
+    : 'A 10x BR é uma ferramenta de triagem, não aconselhamento jurídico ou de investimento. Somente um advogado de imigração habilitado pode orientar sobre elegibilidade a vistos.';
 
   const rows = result.findings
     .map(
       (f) => `<tr>
 <td style="padding:12px 0;border-top:1px solid #e5e7eb;vertical-align:top;width:28px;font-weight:700;color:${COLOR[f.level]}">${MARK[f.level]}</td>
 <td style="padding:12px 0;border-top:1px solid #e5e7eb;vertical-align:top">
-<div style="font-size:13px;color:#6b7280">${esc(f.topic[lang])}</div>
-<div style="font-weight:600;color:#111827">${esc(f.label[lang])}</div>
+<div style="font-weight:600;color:#111827">${esc(f.topic[lang])}</div>
+<div style="font-size:13px;color:#6b7280">${esc(f.label[lang])}</div>
 ${f.level !== 'pass' && f.note ? `<div style="font-size:13px;color:#4b5563;margin-top:2px">${esc(f.note[lang])}</div>` : ''}
 </td>
 <td style="padding:12px 0 12px 12px;border-top:1px solid #e5e7eb;vertical-align:top;white-space:nowrap;font-size:13px;font-weight:600;color:${COLOR[f.level]}">${STATUS[f.level][lang]}</td>
@@ -54,7 +54,7 @@ ${f.level !== 'pass' && f.note ? `<div style="font-size:13px;color:#4b5563;margi
   const html = `<!doctype html><html lang="${lang}"><body style="margin:0;background:#f3f4f6;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden">
-<tr><td style="background:#070b14;padding:22px 28px;color:#ffffff;font-size:20px;font-weight:700">10x<span style="color:#8fb8ff;font-weight:400">BR</span>
+<tr><td style="background:#070b14;padding:22px 28px;color:#ffffff;font-size:20px;font-weight:700">10x <span style="color:#8fb8ff;font-weight:600">BR</span>
 <span style="float:right;font-size:12px;font-weight:400;color:#9ca3af;line-height:26px">${esc(KINDS[kind].title[lang])} · ${en ? 'L-1 scorecard' : 'Scorecard L-1'}</span></td></tr>
 <tr><td style="padding:28px">
 <p style="margin:0 0 16px">${en ? 'Hi' : 'Olá'} ${esc(first)},</p>
@@ -77,7 +77,7 @@ ${f.level !== 'pass' && f.note ? `<div style="font-size:13px;color:#4b5563;margi
     `${rating}: ${metLine}`,
     headline,
     '',
-    ...result.findings.map((f) => `[${STATUS[f.level][lang]}] ${f.topic[lang]} ${f.label[lang]}${f.level !== 'pass' && f.note ? ` (${f.note[lang]})` : ''}`),
+    ...result.findings.map((f) => `[${STATUS[f.level][lang]}] ${f.topic[lang]}: ${f.label[lang]}${f.level !== 'pass' && f.note ? ` (${f.note[lang]})` : ''}`),
     '',
     `${cta}: ${o.link}`,
     next,

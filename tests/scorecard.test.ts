@@ -9,18 +9,18 @@ describe('scorecard email', () => {
   it('reports requirements met instead of a percentage', () => {
     const result = scoreStage1('us', pick('us', 'pass'));
     const mail = scorecardEmail({ kind: 'us', lang: 'en', name: 'Dana Reyes', result, link: 'https://10xbr.com/resume/abc' });
-    expect(mail.subject).toBe('Your L-1 scorecard: 8 of 8 requirements met');
+    expect(mail.subject).toBe('Your L-1 scorecard: 9 of 9 requirements met');
     expect(mail.html).toContain('Hi Dana,');
     expect(mail.html).toContain('https://10xbr.com/resume/abc');
-    expect(mail.text).toContain('8 of 8 requirements met');
+    expect(mail.text).toContain('9 of 9 requirements met');
   });
 
   it('lists every requirement and marks the failed ones', () => {
     const result = scoreStage1('br', pick('br', 'fail'));
     const mail = scorecardEmail({ kind: 'br', lang: 'pt', name: 'Ana', result, link: 'https://x.test/r' });
-    expect(mail.html.match(/<tr>\n<td style="padding:12px 0;border-top/g)).toHaveLength(8);
+    expect(mail.html.match(/<tr>\n<td style="padding:12px 0;border-top/g)).toHaveLength(9);
     expect(mail.html).toContain('Não atendido');
-    expect(mail.subject).toMatch(/^Seu scorecard L-1: \d de 8/);
+    expect(mail.subject).toMatch(/^Seu scorecard L-1: \d de 9/);
   });
 
   it('escapes the name', () => {

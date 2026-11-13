@@ -27,7 +27,7 @@ function initialLang(): Lang {
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [config, setConfig] = useState<Config>({ entity: '10xBR', openSignup: true, setupNeeded: false, ai: true });
+  const [config, setConfig] = useState<Config>({ entity: '10x BR', openSignup: true, setupNeeded: false, ai: true });
   const [lang, setLangState] = useState<Lang>(initialLang);
 
   const refresh = useCallback(async () => {
