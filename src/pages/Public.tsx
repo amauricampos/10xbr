@@ -51,7 +51,7 @@ export function Landing() {
       <Nav />
       <main className="narrow overview stack" style={{ '--gap': '28px' } as React.CSSProperties}>
         <div className="stack center" style={{ '--gap': '14px' } as React.CSSProperties}>
-          <h1>{t('Does your business qualify?', 'O seu negócio se qualifica?')}</h1>
+          <h1>{t('Does your business qualify for an international deal?', 'O seu negócio se qualifica para um negócio internacional?')}</h1>
           <p className="lead-sm">{t('Find out now. It is quick and easy.', 'Descubra agora. É rápido e fácil.')}</p>
           <div className="facts">
             {facts.map((f) => (
