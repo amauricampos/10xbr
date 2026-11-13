@@ -1007,48 +1007,28 @@ app.get('/admin/forms', async (c) => {
   return c.json({ forms: await loadForms(c.env), defaults: DEFAULT_FORMS, versions });
 });
 
-/** Saves a form. `base` is the version the editor started from, so two admins cannot overwrite each other unseen. */
-async function saveForm(c: Context<AppEnv>, key: FormKey, body: string | null, base: number, action: string, detail: object = {}) {
-  const u = requireAdmin(c);
-  const res = await c.env.DB.prepare(
-    `INSERT INTO forms (key, body, created_at, created_by)
-     SELECT ?1, ?2, ?3, ?4 WHERE COALESCE((SELECT MAX(id) FROM forms WHERE key = ?1), 0) = ?5`,
-  )
-    .bind(key, body, now(), u.email, base)
-    .run();
-  if (res.meta.changes === 0) throw new HttpError(409, 'form_changed', 'Someone else changed this questionnaire. Reload to see their version.');
-  await audit(c, action, null, { form: key, ...detail });
-  return c.json({ ok: true });
-}
-
+/**
+ * Saves a form as a new version. `base` is the version the editor started from, so two admins
+ * cannot overwrite each other unseen. A form identical to the shipped one is stored as "default".
+ */
 app.put('/admin/forms/:key', async (c) => {
-  requireAdmin(c);
+  const u = requireAdmin(c);
   const key = FormKeyZ.parse(c.req.param('key'));
   const { body, base } = z.object({ body: z.array(z.unknown()).max(100), base: z.number().int().min(0) }).parse(await c.req.json());
   const form = canonicalForm(key, body);
   const problem = formProblem(key, form);
   if (problem) throw new HttpError(400, 'invalid_form', problem.en);
-  return saveForm(c, key, JSON.stringify(form), base, 'form.saved', { items: form.length });
-});
-
-app.delete('/admin/forms/:key', async (c) => {
-  const key = FormKeyZ.parse(c.req.param('key'));
-  const base = z.coerce.number().int().min(0).parse(c.req.query('base'));
-  return saveForm(c, key, null, base, 'form.reset');
-});
-
-app.post('/admin/forms/:key/restore', async (c) => {
-  requireAdmin(c);
-  const key = FormKeyZ.parse(c.req.param('key'));
-  const { id, base } = z.object({ id: z.number().int().positive(), base: z.number().int().min(0) }).parse(await c.req.json());
-  const row = await c.env.DB.prepare('SELECT body FROM forms WHERE id = ? AND key = ?').bind(id, key).first<{ body: string | null }>();
-  if (!row) throw new HttpError(404, 'not_found');
-  if (row.body) {
-    const form = canonicalForm(key, parse(row.body));
-    if (formProblem(key, form)) throw new HttpError(400, 'invalid_form', 'That version can no longer be used.');
-    return saveForm(c, key, JSON.stringify(form), base, 'form.restored', { version: id });
-  }
-  return saveForm(c, key, null, base, 'form.restored', { version: id });
+  const json = JSON.stringify(form);
+  const isDefault = json === JSON.stringify(canonicalForm(key, getForm(DEFAULT_FORMS, key)));
+  const res = await c.env.DB.prepare(
+    `INSERT INTO forms (key, body, created_at, created_by)
+     SELECT ?1, ?2, ?3, ?4 WHERE COALESCE((SELECT MAX(id) FROM forms WHERE key = ?1), 0) = ?5`,
+  )
+    .bind(key, isDefault ? null : json, now(), u.email, base)
+    .run();
+  if (res.meta.changes === 0) throw new HttpError(409, 'form_changed', 'Someone else changed this questionnaire. Reload to see their version.');
+  await audit(c, isDefault ? 'form.reset' : 'form.saved', null, { form: key, items: form.length });
+  return c.json({ ok: true });
 });
 
 app.get('/admin/forms/:key/versions/:id', async (c) => {

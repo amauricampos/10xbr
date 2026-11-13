@@ -5,6 +5,7 @@ import { LAST_STAGE, STAGE1_RATING, STATUS, scoreStage1, stage1Complete, type Ki
 import { api, type Lead, type User } from '../api';
 import { useSession } from '../session';
 import { Stage1ResultView } from '../stage1';
+import { Questionnaires } from './Forms';
 import { Chip, Field, Nav, PageLoader, fmtDate, s1Tone, statusTone, useAction } from '../ui';
 
 /* ------------------------------------------------------------------ */
@@ -477,7 +478,7 @@ function Activity() {
   );
 }
 
-const TABS = ['overview', 'team', 'owners', 'activity'] as const;
+const TABS = ['overview', 'forms', 'team', 'owners', 'activity'] as const;
 
 export function AdminHome() {
   const { t, user } = useSession();
@@ -485,7 +486,7 @@ export function AdminHome() {
   if (!user) return <Navigate to="/signin" replace />;
   if (user.role !== 'staff') return <Navigate to="/app" replace />;
   if (!user.is_admin) return <Navigate to="/staff" replace />;
-  const label = { overview: t('Overview', 'Visão geral'), team: t('Team', 'Equipe'), owners: t('Owner accounts', 'Contas de donos'), activity: t('Activity', 'Atividade') };
+  const label = { overview: t('Overview', 'Visão geral'), forms: t('Questionnaires', 'Questionários'), team: t('Team', 'Equipe'), owners: t('Owner accounts', 'Contas de donos'), activity: t('Activity', 'Atividade') };
   return (
     <>
       <Nav />
@@ -501,6 +502,7 @@ export function AdminHome() {
           </div>
         </div>
         {tab === 'overview' && <Overview />}
+        {tab === 'forms' && <Questionnaires />}
         {tab === 'team' && <People role="staff" />}
         {tab === 'owners' && <People role="applicant" />}
         {tab === 'activity' && <Activity />}

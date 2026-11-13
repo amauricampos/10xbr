@@ -1381,3 +1381,249 @@ table.list tr.detail td {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Questionnaire editor ---------- */
+.form-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.form-picker button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.form-picker button[aria-pressed='true'] {
+  border-color: var(--azure);
+  background: rgba(59, 155, 255, 0.16);
+  color: var(--text);
+}
+.dot.good {
+  background: var(--good);
+}
+.dot.warn {
+  background: var(--warn);
+}
+.dot.bad {
+  background: var(--bad);
+}
+.dot.info {
+  background: var(--azure);
+}
+.sortable {
+  position: relative;
+}
+.sortable + .sortable {
+  margin-top: 8px;
+}
+.sortable.dragging {
+  z-index: 5;
+  opacity: 0.92;
+}
+.sortable.dragging > * {
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.8);
+  border-color: var(--azure);
+}
+.grip {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: grab;
+  touch-action: none;
+}
+button.grip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+.sortable.dragging .grip {
+  cursor: grabbing;
+}
+.q-card,
+.q-section {
+  border: 1px solid var(--glass-line);
+  border-radius: var(--r-md);
+  background: rgba(12, 18, 32, 0.72);
+}
+.q-card.open {
+  border-color: var(--glass-line-strong);
+}
+.q-head,
+.q-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+}
+.q-section-head {
+  gap: 10px;
+  padding: 12px 12px;
+}
+.q-section.locked {
+  opacity: 0.75;
+}
+.q-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.q-title:disabled {
+  cursor: default;
+}
+.q-name {
+  display: block;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.q-sub {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.q-chips {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.q-card .num,
+.q-section .num {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: rgba(59, 155, 255, 0.18);
+  color: var(--azure);
+}
+.q-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 6px 16px 18px;
+}
+.q-section > .q-body {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 14px;
+}
+.q-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 12px 14px;
+}
+.q-list .q-card {
+  background: rgba(255, 255, 255, 0.035);
+}
+.l-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.l-cell {
+  position: relative;
+}
+.l-tag {
+  position: absolute;
+  left: 12px;
+  top: 15px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  pointer-events: none;
+}
+.l-cell .input,
+.l-cell .textarea {
+  padding-left: 38px;
+}
+.l-cell .textarea {
+  min-height: 64px;
+  display: block;
+}
+.opt {
+  border-left: 3px solid var(--glass-line);
+  border-radius: 4px;
+  padding-left: 6px;
+}
+.opt.good {
+  border-left-color: var(--good);
+}
+.opt.warn {
+  border-left-color: var(--warn);
+}
+.opt.bad {
+  border-left-color: var(--bad);
+}
+.opt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.opt-note {
+  padding: 8px 0 4px 36px;
+}
+.select.sm {
+  width: auto;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 4px 10px;
+  font-size: 0.86rem;
+}
+.versions summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 0.88rem;
+}
+@media (max-width: 720px) {
+  .l-pair {
+    grid-template-columns: 1fr;
+  }
+  .opt-row {
+    flex-wrap: wrap;
+  }
+  .opt-row > .grow {
+    flex-basis: 100%;
+    order: 3;
+  }
+  .q-chips .chip {
+    display: none;
+  }
+  .opt-note {
+    padding-left: 0;
+  }
+}
