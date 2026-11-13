@@ -115,7 +115,6 @@ const US_QUESTIONS: ChoiceQuestion[] = [
     id: 'activity',
     req: { en: 'Doing business', pt: 'Atividade empresarial' },
     label: { en: 'What does the business do?', pt: 'O que o negócio faz?' },
-    help: { en: 'L-1 requires the regular, continuous sale of goods or services.', pt: 'O L-1 exige a venda regular e contínua de bens ou serviços.' },
     options: [
       { value: 'active', level: 'pass', label: { en: 'Sells goods or services all year', pt: 'Vende bens ou serviços o ano todo' } },
       {
@@ -161,7 +160,7 @@ const US_QUESTIONS: ChoiceQuestion[] = [
     id: 'employees',
     req: { en: 'Staff to manage', pt: 'Equipe para gerenciar' },
     label: { en: 'How many W-2 employees are on payroll, not counting owners?', pt: 'Quantos funcionários W-2 estão na folha, sem contar os sócios?' },
-    help: { en: 'Contractors paid on a 1099 do not count.', pt: 'Prestadores pagos por 1099 não contam.' },
+    help: { en: 'Leave out contractors paid on a 1099.', pt: 'Não inclua prestadores pagos por 1099.' },
     options: [
       {
         value: '0',
@@ -189,10 +188,6 @@ const US_QUESTIONS: ChoiceQuestion[] = [
     id: 'runs',
     req: { en: 'Managerial structure', pt: 'Estrutura gerencial' },
     label: { en: 'Who runs the business day to day?', pt: 'Quem toca o negócio no dia a dia?' },
-    help: {
-      en: 'The buyer must manage supervisors or professionals, or an essential function. Supervising frontline staff directly is not enough.',
-      pt: 'O comprador precisa gerenciar supervisores ou profissionais, ou uma função essencial. Supervisionar diretamente a equipe operacional não basta.',
-    },
     options: [
       { value: 'managers', level: 'pass', label: { en: 'Managers or supervisors, the owner oversees', pt: 'Gerentes ou supervisores, o dono supervisiona' } },
       {
@@ -236,7 +231,6 @@ const US_QUESTIONS: ChoiceQuestion[] = [
     id: 'sale',
     req: { en: 'Ownership and control', pt: 'Propriedade e controle' },
     label: { en: 'How much of the business is for sale?', pt: 'Quanto do negócio está à venda?' },
-    help: { en: 'The buyer’s company abroad must own and control the U.S. company.', pt: 'A empresa do comprador no exterior precisa ser dona e controlar a empresa nos EUA.' },
     options: [
       { value: 'all', level: 'pass', label: { en: '100%', pt: '100%' } },
       { value: 'majority', level: 'pass', label: { en: 'A majority, with control', pt: 'A maioria, com controle' } },
@@ -265,8 +259,8 @@ const US_QUESTIONS: ChoiceQuestion[] = [
     req: { en: 'Company can be acquired', pt: 'A empresa pode ser adquirida' },
     label: { en: 'Would you sell the company itself, or only its assets?', pt: 'Você venderia a empresa em si ou apenas os ativos?' },
     help: {
-      en: 'Selling the company means its stock or LLC membership interests. The buyer keeps its history.',
-      pt: 'Vender a empresa significa vender as ações ou cotas da LLC. O comprador mantém o histórico.',
+      en: 'Selling the company means selling its stock or LLC membership interests.',
+      pt: 'Vender a empresa significa vender as ações ou cotas da LLC.',
     },
     options: [
       { value: 'entity', level: 'pass', label: { en: 'The company itself', pt: 'A empresa em si' } },
@@ -319,7 +313,6 @@ const US_QUESTIONS: ChoiceQuestion[] = [
     id: 'records',
     req: { en: 'Documented operations', pt: 'Operação documentada' },
     label: { en: 'How are the books kept?', pt: 'Como é a contabilidade?' },
-    help: { en: 'The petition is proven with tax returns, Form 941 payroll reports and bank statements.', pt: 'A petição é comprovada com declarações de imposto, relatórios de folha (Form 941) e extratos bancários.' },
     options: [
       { value: 'clean', level: 'pass', label: { en: 'Tax returns filed every year, payroll through a payroll service', pt: 'Declarações todo ano, folha por serviço de payroll' } },
       {
@@ -350,7 +343,6 @@ const BR_QUESTIONS: ChoiceQuestion[] = [
     id: 'role',
     req: { en: 'Managerial or executive role', pt: 'Cargo gerencial ou executivo' },
     label: { en: 'What is your role at the company in Brazil?', pt: 'Qual é o seu cargo na empresa no Brasil?' },
-    help: { en: 'L-1A is for managers and executives.', pt: 'O L-1A é para gerentes e executivos.' },
     options: [
       { value: 'owner_exec', level: 'pass', label: { en: 'Owner or partner who runs it (sócio-administrador)', pt: 'Sócio-administrador' } },
       { value: 'executive', level: 'pass', label: { en: 'Executive, director or manager', pt: 'Executivo, diretor ou gerente' } },
@@ -369,7 +361,7 @@ const BR_QUESTIONS: ChoiceQuestion[] = [
     id: 'tenure',
     req: { en: 'One continuous year abroad', pt: 'Um ano contínuo no exterior' },
     label: { en: 'Have you worked there full time for one continuous year within the last three?', pt: 'Você trabalhou lá em tempo integral por um ano contínuo nos últimos três?' },
-    help: { en: 'Time spent in the U.S. does not count toward the year.', pt: 'O tempo passado nos EUA não conta para esse ano.' },
+    help: { en: 'Count only time worked in Brazil.', pt: 'Conte apenas o tempo trabalhado no Brasil.' },
     options: [
       { value: 'yes', level: 'pass', label: yes },
       {
@@ -393,7 +385,7 @@ const BR_QUESTIONS: ChoiceQuestion[] = [
     id: 'pay_trail',
     req: { en: 'Documented employment', pt: 'Vínculo documentado' },
     label: { en: 'Is that work documented?', pt: 'Esse trabalho está documentado?' },
-    help: { en: 'Pró-labore, pay stubs or payroll, declared every month.', pt: 'Pró-labore, holerites ou folha, declarados todos os meses.' },
+    help: { en: 'Pró-labore, pay stubs or payroll records.', pt: 'Pró-labore, holerites ou folha.' },
     options: [
       { value: 'yes', level: 'pass', label: { en: 'Yes, every month', pt: 'Sim, todos os meses' } },
       {
@@ -420,7 +412,7 @@ const BR_QUESTIONS: ChoiceQuestion[] = [
     id: 'manages',
     req: { en: 'Managerial capacity abroad', pt: 'Capacidade gerencial no exterior' },
     label: { en: 'What do you mostly do day to day?', pt: 'O que você mais faz no dia a dia?' },
-    help: { en: 'The rule asks what you do most of the time.', pt: 'A regra olha o que você faz na maior parte do tempo.' },
+    help: { en: 'Think of a typical week.', pt: 'Pense em uma semana típica.' },
     options: [
       { value: 'people', level: 'pass', label: { en: 'Manage managers, supervisors or professionals', pt: 'Gerencio gerentes, supervisores ou profissionais' } },
       { value: 'function', level: 'pass', label: { en: 'Run an essential function or department', pt: 'Dirijo uma função ou departamento essencial' } },
@@ -493,7 +485,6 @@ const BR_QUESTIONS: ChoiceQuestion[] = [
     id: 'continues',
     req: { en: 'Company keeps operating', pt: 'A empresa continua operando' },
     label: { en: 'Will the company in Brazil keep operating after you move?', pt: 'A empresa no Brasil continuará operando depois da sua mudança?' },
-    help: { en: 'It must stay in business for your whole time on L-1.', pt: 'Ela precisa continuar em atividade durante todo o seu período no L-1.' },
     options: [
       { value: 'yes_successor', level: 'pass', label: { en: 'Yes, and someone is ready to run it', pt: 'Sim, e já há quem a administre' } },
       {
@@ -520,10 +511,6 @@ const BR_QUESTIONS: ChoiceQuestion[] = [
     id: 'ownership',
     req: { en: 'Qualifying relationship', pt: 'Vínculo qualificado' },
     label: { en: 'Who would own the U.S. business after the purchase?', pt: 'Quem seria o dono do negócio nos EUA após a compra?' },
-    help: {
-      en: 'The two companies must be parent and subsidiary, or owned by the same people in the same proportions.',
-      pt: 'As duas empresas precisam ser matriz e subsidiária, ou ter os mesmos sócios nas mesmas proporções.',
-    },
     options: [
       { value: 'majority', level: 'pass', label: { en: 'The Brazilian company, with more than 50%', pt: 'A empresa brasileira, com mais de 50%' } },
       {
@@ -561,7 +548,6 @@ const BR_QUESTIONS: ChoiceQuestion[] = [
     id: 'us_role',
     req: { en: 'Managerial role in the U.S.', pt: 'Cargo gerencial nos EUA' },
     label: { en: 'What would you do in the U.S. business?', pt: 'O que você faria no negócio nos EUA?' },
-    help: { en: 'L-1A is granted for a managerial or executive job, not an operational one.', pt: 'O L-1A é concedido para um cargo gerencial ou executivo, não operacional.' },
     options: [
       { value: 'manage', level: 'pass', label: { en: 'Direct it through managers and staff', pt: 'Dirigir por meio de gerentes e equipe' } },
       {
@@ -719,7 +705,6 @@ const US_FIELDS: FieldDef[] = [
     id: 'seller_note',
     kind: 'choice',
     label: { en: 'Would you finance part of the price?', pt: 'Você financiaria parte do preço?' },
-    help: { en: 'International buyers cannot use SBA loans, so most deals are cash plus a seller note.', pt: 'Compradores internacionais não podem usar empréstimos SBA, então a maioria dos negócios é à vista mais financiamento do vendedor.' },
     options: [
       { value: 'yes20', label: { en: 'Yes, 20% or more', pt: 'Sim, 20% ou mais' } },
       { value: 'some', label: { en: 'Yes, less than 20%', pt: 'Sim, menos de 20%' } },
