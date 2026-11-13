@@ -1326,3 +1326,58 @@ table.list tr.detail td {
     gap: 2px;
   }
 }
+
+/* ---------- Grouped form ---------- */
+.form-section {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.form-section + .form-section {
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+.form-section legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.form-section legend .num {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  background: rgba(59, 155, 255, 0.18);
+  color: var(--azure);
+}
+.fields {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+.fields.cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.fields.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.fields .wide {
+  grid-column: 1 / -1;
+}
+@media (max-width: 640px) {
+  .fields.cols-2,
+  .fields.cols-3 {
+    grid-template-columns: 1fr;
+  }
+}

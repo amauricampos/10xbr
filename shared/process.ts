@@ -663,6 +663,8 @@ export type FieldDef = {
   id: string;
   kind: 'money' | 'number' | 'choice';
   label: L;
+  /** Label used on the form, where the section heading already gives the context. */
+  short?: L;
   help?: L;
   unit?: 'BRL' | 'USD' | 'years' | 'people' | 'hours' | '%';
   max?: number;
@@ -670,18 +672,25 @@ export type FieldDef = {
   allowNegative?: boolean;
 };
 
+const REV_SHORT: L[] = [
+  { en: 'Two years ago', pt: 'Há dois anos' },
+  { en: 'Last year', pt: 'Ano passado' },
+  { en: 'Most recent 12 months', pt: 'Últimos 12 meses' },
+];
+
 const US_FIELDS: FieldDef[] = [
   { id: 'price', kind: 'money', unit: 'USD', label: { en: 'Asking price', pt: 'Preço pedido' } },
-  { id: 'rev_y1', kind: 'money', unit: 'USD', label: { en: 'Revenue, two years ago', pt: 'Faturamento, há dois anos' } },
-  { id: 'rev_y2', kind: 'money', unit: 'USD', label: { en: 'Revenue, last year', pt: 'Faturamento, ano passado' } },
-  { id: 'rev_y3', kind: 'money', unit: 'USD', label: { en: 'Revenue, most recent 12 months', pt: 'Faturamento, últimos 12 meses' } },
+  { id: 'rev_y1', kind: 'money', unit: 'USD', label: { en: 'Revenue, two years ago', pt: 'Faturamento, há dois anos' }, short: REV_SHORT[0] },
+  { id: 'rev_y2', kind: 'money', unit: 'USD', label: { en: 'Revenue, last year', pt: 'Faturamento, ano passado' }, short: REV_SHORT[1] },
+  { id: 'rev_y3', kind: 'money', unit: 'USD', label: { en: 'Revenue, most recent 12 months', pt: 'Faturamento, últimos 12 meses' }, short: REV_SHORT[2] },
   {
     id: 'sde',
     kind: 'money',
     unit: 'USD',
     allowNegative: true,
     label: { en: 'Owner’s earnings (SDE), most recent 12 months', pt: 'Lucro do proprietário (SDE), últimos 12 meses' },
-    help: { en: 'Profit before the owner’s pay. Use a negative number for a loss.', pt: 'Lucro antes da remuneração do dono. Use número negativo para prejuízo.' },
+    short: { en: 'Owner’s earnings (SDE)', pt: 'Lucro do proprietário (SDE)' },
+    help: { en: 'Profit plus the owner’s own pay and perks. Use a negative number for a loss.', pt: 'Lucro mais a remuneração e os benefícios do dono. Use número negativo para prejuízo.' },
   },
   { id: 'employees', kind: 'number', unit: 'people', max: 100_000, label: { en: 'Employees on payroll (W-2)', pt: 'Funcionários na folha (W-2)' } },
   {
@@ -690,15 +699,17 @@ const US_FIELDS: FieldDef[] = [
     unit: 'years',
     max: 99,
     label: { en: 'Lease years remaining, with options', pt: 'Anos restantes de aluguel, com opções' },
-    help: { en: 'Enter 10 if the business owns the property.', pt: 'Digite 10 se o imóvel for próprio.' },
+    short: { en: 'Years left on the lease', pt: 'Anos restantes de aluguel' },
+    help: { en: 'Include renewal options. Enter 10 if the business owns the property.', pt: 'Inclua opções de renovação. Digite 10 se o imóvel for próprio.' },
   },
-  { id: 'owner_hours', kind: 'number', unit: 'hours', max: 120, label: { en: 'Hours the owner works per week', pt: 'Horas que o dono trabalha por semana' } },
-  { id: 'top_customer_pct', kind: 'number', unit: '%', max: 100, label: { en: 'Largest customer, share of revenue', pt: 'Maior cliente, parcela do faturamento' } },
+  { id: 'owner_hours', kind: 'number', unit: 'hours', max: 120, label: { en: 'Hours the owner works per week', pt: 'Horas que o dono trabalha por semana' }, short: { en: 'Owner’s hours per week', pt: 'Horas do dono por semana' } },
+  { id: 'top_customer_pct', kind: 'number', unit: '%', max: 100, label: { en: 'Largest customer, share of revenue', pt: 'Maior cliente, parcela do faturamento' }, short: { en: 'Largest customer’s share of revenue', pt: 'Parcela do maior cliente no faturamento' } },
   {
     id: 'debt',
     kind: 'money',
     unit: 'USD',
     label: { en: 'Business debt today', pt: 'Dívida do negócio hoje' },
+    short: { en: 'Total owed today', pt: 'Total devido hoje' },
     help: { en: 'Loans, credit lines and equipment financing. Enter 0 if none.', pt: 'Empréstimos, linhas de crédito e financiamento de equipamentos. Digite 0 se não houver.' },
   },
   {
@@ -725,19 +736,20 @@ const US_FIELDS: FieldDef[] = [
 ];
 
 const BR_FIELDS: FieldDef[] = [
-  { id: 'rev_y1', kind: 'money', unit: 'BRL', label: { en: 'Revenue, two years ago', pt: 'Faturamento, há dois anos' } },
-  { id: 'rev_y2', kind: 'money', unit: 'BRL', label: { en: 'Revenue, last year', pt: 'Faturamento, ano passado' } },
-  { id: 'rev_y3', kind: 'money', unit: 'BRL', label: { en: 'Revenue, most recent 12 months', pt: 'Faturamento, últimos 12 meses' } },
+  { id: 'rev_y1', kind: 'money', unit: 'BRL', label: { en: 'Revenue, two years ago', pt: 'Faturamento, há dois anos' }, short: REV_SHORT[0] },
+  { id: 'rev_y2', kind: 'money', unit: 'BRL', label: { en: 'Revenue, last year', pt: 'Faturamento, ano passado' }, short: REV_SHORT[1] },
+  { id: 'rev_y3', kind: 'money', unit: 'BRL', label: { en: 'Revenue, most recent 12 months', pt: 'Faturamento, últimos 12 meses' }, short: REV_SHORT[2] },
   {
     id: 'profit',
     kind: 'money',
     unit: 'BRL',
     allowNegative: true,
     label: { en: 'Net profit, most recent 12 months', pt: 'Lucro líquido, últimos 12 meses' },
+    short: { en: 'Net profit', pt: 'Lucro líquido' },
     help: { en: 'Use a negative number for a loss.', pt: 'Use número negativo para prejuízo.' },
   },
-  { id: 'cash', kind: 'money', unit: 'BRL', label: { en: 'Cash and liquid investments today', pt: 'Caixa e aplicações líquidas hoje' } },
-  { id: 'debt', kind: 'money', unit: 'BRL', label: { en: 'Total debt today', pt: 'Dívida total hoje' } },
+  { id: 'cash', kind: 'money', unit: 'BRL', label: { en: 'Cash and liquid investments today', pt: 'Caixa e aplicações líquidas hoje' }, short: { en: 'Cash and liquid investments', pt: 'Caixa e aplicações líquidas' } },
+  { id: 'debt', kind: 'money', unit: 'BRL', label: { en: 'Total debt today', pt: 'Dívida total hoje' }, short: { en: 'Total debt', pt: 'Dívida total' }, help: { en: 'Enter 0 if none.', pt: 'Digite 0 se não houver.' } },
   {
     id: 'invest_usd',
     kind: 'money',
@@ -749,6 +761,7 @@ const BR_FIELDS: FieldDef[] = [
     id: 'tax_status',
     kind: 'choice',
     label: { en: 'Taxes and filings', pt: 'Impostos e obrigações' },
+    short: { en: 'Are taxes and filings up to date?', pt: 'Impostos e obrigações estão em dia?' },
     options: [
       { value: 'good', label: { en: 'All current', pt: 'Tudo em dia' } },
       { value: 'plan', label: { en: 'On a payment plan', pt: 'Em parcelamento' } },
@@ -758,6 +771,47 @@ const BR_FIELDS: FieldDef[] = [
 ];
 
 export const FIELDS: Record<Kind, FieldDef[]> = { us: US_FIELDS, br: BR_FIELDS };
+
+/** How the form lays the fields out: related numbers together, in the order an owner thinks of them. */
+export type FieldGroup = { title: L; hint?: L; fields: string[]; cols: 2 | 3 };
+export const FIELD_GROUPS: Record<Kind, FieldGroup[]> = {
+  us: [
+    {
+      title: { en: 'Revenue', pt: 'Faturamento' },
+      hint: { en: 'Total sales for each period.', pt: 'Total de vendas em cada período.' },
+      fields: ['rev_y1', 'rev_y2', 'rev_y3'],
+      cols: 3,
+    },
+    {
+      title: { en: 'Earnings and debt', pt: 'Lucro e dívida' },
+      hint: { en: 'For the most recent 12 months.', pt: 'Nos últimos 12 meses.' },
+      fields: ['sde', 'debt'],
+      cols: 2,
+    },
+    {
+      title: { en: 'Team and operations', pt: 'Equipe e operação' },
+      fields: ['employees', 'owner_hours', 'top_customer_pct', 'lease_years'],
+      cols: 2,
+    },
+    { title: { en: 'The sale', pt: 'A venda' }, fields: ['price', 'seller_note', 'sale_reason'], cols: 2 },
+  ],
+  br: [
+    {
+      title: { en: 'Revenue', pt: 'Faturamento' },
+      hint: { en: 'Total sales for each period, in reais.', pt: 'Total de vendas em cada período, em reais.' },
+      fields: ['rev_y1', 'rev_y2', 'rev_y3'],
+      cols: 3,
+    },
+    {
+      title: { en: 'Profit, cash and debt', pt: 'Lucro, caixa e dívida' },
+      hint: { en: 'Profit for the most recent 12 months. Cash and debt as of today.', pt: 'Lucro dos últimos 12 meses. Caixa e dívida na data de hoje.' },
+      fields: ['profit', 'cash', 'debt'],
+      cols: 3,
+    },
+    { title: { en: 'Taxes', pt: 'Impostos' }, fields: ['tax_status'], cols: 2 },
+    { title: { en: 'Your investment', pt: 'Seu investimento' }, fields: ['invest_usd'], cols: 2 },
+  ],
+};
 
 export type Stage2Answers = Record<string, number | string>;
 export type Grade = 'good' | 'ok' | 'weak';

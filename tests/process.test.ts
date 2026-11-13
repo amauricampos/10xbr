@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DOCS, docsFor } from '../shared/documents';
-import { QUESTIONS, scoreStage1, scoreStage2, stage1Complete, stage2Complete, stage4Complete, type Kind, type Stage1Answers } from '../shared/process';
+import { FIELD_GROUPS, FIELDS, QUESTIONS, scoreStage1, scoreStage2, stage1Complete, stage2Complete, stage4Complete, type Kind, type Stage1Answers } from '../shared/process';
 
 const best = (kind: Kind): Stage1Answers => Object.fromEntries(QUESTIONS[kind].map((q) => [q.id, q.options.find((o) => o.level === 'pass')!.value]));
 
@@ -137,6 +137,13 @@ describe('stage 2: candidate company health', () => {
   it('rates a loss-making, indebted, unfunded company Weak', () => {
     const r = scoreStage2('br', { ...brGood, profit: -200_000, cash: 20_000, debt: 2_000_000, tax_status: 'issues', invest_usd: 20_000 });
     expect(r).toMatchObject({ rating: 'weak', passed: false });
+  });
+});
+
+describe('stage 2: form layout', () => {
+  it.each(['us', 'br'] as const)('places every %s field in exactly one group', (kind) => {
+    const grouped = FIELD_GROUPS[kind].flatMap((g) => g.fields);
+    expect([...grouped].sort()).toEqual(FIELDS[kind].map((f) => f.id).sort());
   });
 });
 

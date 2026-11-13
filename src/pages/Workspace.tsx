@@ -2,6 +2,7 @@ import { ArrowRight, Check, FileText, Lock, Pencil, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import {
+  FIELD_GROUPS,
   FIELDS,
   KINDS,
   LAST_STAGE,
@@ -330,6 +331,18 @@ function NumberInput({ def, value, onChange }: { def: FieldDef; value: number | 
   );
 }
 
+function FormSection({ n, title, hint, children }: { n: number; title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <fieldset className="form-section">
+      <legend>
+        <span className="num">{n}</span> {title}
+      </legend>
+      {hint && <p className="help">{hint}</p>}
+      {children}
+    </fieldset>
+  );
+}
+
 function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
   const { t, tl } = useSession();
   const fields = FIELDS[c.kind];
@@ -351,7 +364,7 @@ function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
   return (
     <form
       className="stack"
-      style={{ '--gap': '22px' } as React.CSSProperties}
+      style={{ '--gap': '28px' } as React.CSSProperties}
       onSubmit={(e) => {
         e.preventDefault();
         run(async () => {
@@ -360,42 +373,53 @@ function Stage2Form({ c, onSaved }: { c: Case; onSaved: () => Promise<void> }) {
         });
       }}
     >
-      <div className="grid three">
-        <Field label={c.kind === 'us' ? t('Business name', 'Nome do negócio') : t('Company name', 'Nome da empresa')}>
-          <input className="input" name="company" required maxLength={160} value={company} onChange={(e) => setCompany(e.target.value)} />
-        </Field>
-        <Field label={t('What it does', 'O que faz')}>
-          <input
-            className="input"
-            name="industry"
-            required
-            maxLength={120}
-            placeholder={c.kind === 'us' ? t('e.g. HVAC services', 'ex.: serviços de climatização') : t('e.g. logistics', 'ex.: logística')}
-            value={industry}
-            onChange={(e) => setIndustry(e.target.value)}
-          />
-        </Field>
-        <Field label={t('City and state', 'Cidade e estado')}>
-          <input className="input" name="location" required maxLength={120} placeholder={c.kind === 'us' ? 'Orlando, FL' : 'Curitiba, PR'} value={location} onChange={(e) => setLocation(e.target.value)} />
-        </Field>
-      </div>
-      <div className="grid two">
-        {fields.map((f) => (
-          <Field key={f.id} label={tl(f.label)} help={tl(f.help)}>
-            {f.kind === 'choice' ? (
-              <div className="seg">
-                {f.options!.map((o) => (
-                  <button type="button" key={o.value} aria-pressed={a[f.id] === o.value} onClick={() => set(f.id, o.value)}>
-                    {tl(o.label)}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <NumberInput def={f} value={a[f.id] as number | undefined} onChange={(n) => set(f.id, n)} />
-            )}
+      <FormSection n={1} title={c.kind === 'us' ? t('The business', 'O negócio') : t('The company', 'A empresa')}>
+        <div className="fields cols-3">
+          <Field label={c.kind === 'us' ? t('Business name', 'Nome do negócio') : t('Company name', 'Nome da empresa')}>
+            <input className="input" name="company" required maxLength={160} value={company} onChange={(e) => setCompany(e.target.value)} />
           </Field>
-        ))}
-      </div>
+          <Field label={t('What it does', 'O que faz')}>
+            <input
+              className="input"
+              name="industry"
+              required
+              maxLength={120}
+              placeholder={c.kind === 'us' ? t('e.g. HVAC services', 'ex.: serviços de climatização') : t('e.g. logistics', 'ex.: logística')}
+              value={industry}
+              onChange={(e) => setIndustry(e.target.value)}
+            />
+          </Field>
+          <Field label={t('City and state', 'Cidade e estado')}>
+            <input className="input" name="location" required maxLength={120} placeholder={c.kind === 'us' ? 'Orlando, FL' : 'Curitiba, PR'} value={location} onChange={(e) => setLocation(e.target.value)} />
+          </Field>
+        </div>
+      </FormSection>
+      {FIELD_GROUPS[c.kind].map((g, i) => (
+        <FormSection key={g.title.en} n={i + 2} title={tl(g.title)} hint={tl(g.hint)}>
+          <div className={`fields cols-${g.cols}`}>
+            {g.fields.map((id) => {
+              const f = fields.find((x) => x.id === id)!;
+              return (
+                <div key={f.id} className={f.kind === 'choice' ? 'wide' : undefined}>
+                  <Field label={tl(f.short ?? f.label)} help={tl(f.help)}>
+                    {f.kind === 'choice' ? (
+                      <div className="seg">
+                        {f.options!.map((o) => (
+                          <button type="button" key={o.value} aria-pressed={a[f.id] === o.value} onClick={() => set(f.id, o.value)}>
+                            {tl(o.label)}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <NumberInput def={f} value={a[f.id] as number | undefined} onChange={(n) => set(f.id, n)} />
+                    )}
+                  </Field>
+                </div>
+              );
+            })}
+          </div>
+        </FormSection>
+      ))}
       <p className="help">{t('Round numbers are fine. Documents confirm them later.', 'Números arredondados bastam. Os documentos confirmam depois.')}</p>
       {error && <p className="error">{error}</p>}
       <div>
