@@ -30,6 +30,23 @@ The team can override a stopped gate, send a stage back with a note, decline, or
 
 Questions, thresholds and scoring live in `shared/process.ts`. The document lists are in `shared/documents.ts`, and the NDA text in `shared/legal.ts`.
 
+## Admin
+
+`/admin` is for team members marked as admin (the first account created at `/setup` is one):
+
+- **Overview**: a funnel per track, from questions answered to catalog, plus what is waiting for the team, and CSV exports of leads and records.
+- **Team**: invite by email (single-use link, valid seven days), make or remove admins, reset two-step sign-in, deactivate.
+- **Owner accounts**: every owner with their record, and deactivate.
+- **Activity**: the full audit log.
+
+Reviewers (team members who are not admins) see `/staff` only.
+
+### When the L-1 screen fails
+
+A failed screen ends at the scorecard: no account is created and there is nothing more to fill in. The result appears under Leads on `/staff`. If the team sees a way forward, "Open next step" records a reason, emails the person a link, and lets them create an account that starts at business health.
+
+An owner whose record is stopped or declined sees the result and the team's note, without the stage navigation or forms.
+
 ## Pages
 
 - `/`: overview and instructions for an owner who has already been briefed, then straight to the form.
