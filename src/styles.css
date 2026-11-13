@@ -1383,6 +1383,16 @@ table.list tr.detail td {
 }
 
 /* ---------- Questionnaire editor ---------- */
+/* Five tabs do not fit a phone, so the strip scrolls sideways. */
+.tabs {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs button {
+  flex: none;
+  white-space: nowrap;
+}
 .form-picker {
   display: flex;
   flex-wrap: wrap;
@@ -1441,10 +1451,15 @@ table.list tr.detail td {
   height: 34px;
   border: 0;
   border-radius: 8px;
-  background: transparent;
-  color: var(--text-3);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-2);
   cursor: grab;
   touch-action: none;
+}
+span.grip {
+  background: transparent;
+  color: var(--text-3);
+  cursor: default;
 }
 button.grip:hover {
   background: rgba(255, 255, 255, 0.08);
@@ -1622,6 +1637,9 @@ button.grip:hover {
   }
   .q-chips .chip {
     display: none;
+  }
+  .q-name {
+    white-space: normal;
   }
   .opt-note {
     padding-left: 0;
