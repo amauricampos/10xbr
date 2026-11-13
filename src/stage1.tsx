@@ -1,6 +1,6 @@
-import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ChevronRight, X } from 'lucide-react';
 import { useState } from 'react';
-import { QUESTIONS, STAGE1_RATING, type Kind, type Level, type Stage1Answers, type Stage1Result } from '../shared/process';
+import { QUESTIONS, STAGE1_HEADLINE, STAGE1_RATING, type Kind, type Level, type Stage1Answers, type Stage1Result } from '../shared/process';
 import { useSession } from './session';
 import { Chip, s1Tone } from './ui';
 
@@ -54,29 +54,24 @@ export function Stage1Wizard({ kind, onDone }: { kind: Kind; onDone: (a: Stage1A
 
 const ringColor = { compliant: 'var(--good)', gaps: 'var(--warn)', not_compliant: 'var(--bad)' } as const;
 
+const MARK = { pass: Check, caution: AlertTriangle, fail: X } as const;
+
+/** The stage 1 scorecard: how many requirements are met, then each one with its status. */
 export function Stage1ResultView({ kind, result }: { kind: Kind; result: Stage1Result }) {
   const { t, tl } = useSession();
-  const notes = result.findings.filter((f) => f.level !== 'pass');
-  const passes = result.findings.length - notes.length;
-  const head =
-    kind === 'us'
-      ? {
-          compliant: t('Good news. Your business qualifies for our international buyers.', 'Boa notícia. O seu negócio se qualifica para os nossos compradores internacionais.'),
-          gaps: t('Your business can qualify for our international buyers. A few points need attention.', 'O seu negócio pode se qualificar para os nossos compradores internacionais. Alguns pontos precisam de atenção.'),
-          not_compliant: t('As it stands, our L-1 buyers cannot acquire this business.', 'Do jeito que está, os nossos compradores L-1 não podem adquirir este negócio.'),
-        }[result.rating]
-      : {
-          compliant: t('You and your company meet the core L-1A requirements we screen for.', 'Você e sua empresa atendem aos requisitos centrais do L-1A que analisamos.'),
-          gaps: t('Your profile can work. A few points need attention.', 'Seu perfil pode funcionar. Alguns pontos precisam de atenção.'),
-          not_compliant: t('Something essential is missing today. Here is what to fix.', 'Falta algo essencial hoje. Veja o que corrigir.'),
-        }[result.rating];
+  const total = result.findings.length;
+  const met = result.findings.filter((f) => f.level === 'pass').length;
   const order: Record<Level, number> = { fail: 0, caution: 1, pass: 2 };
+  const status = { pass: t('Met', 'Atendido'), caution: t('Needs attention', 'Requer atenção'), fail: t('Not met', 'Não atendido') };
 
   return (
     <div className="stack fade-in" style={{ '--gap': '20px' } as React.CSSProperties}>
       <div className="row" style={{ '--gap': '20px' } as React.CSSProperties}>
-        <div className="ring" style={{ '--p': result.score, '--c': ringColor[result.rating] } as React.CSSProperties}>
-          <span>{result.score}</span>
+        <div className="ring" style={{ '--p': (met / total) * 100, '--c': ringColor[result.rating] } as React.CSSProperties}>
+          <span>
+            {met}
+            <small>/{total}</small>
+          </span>
         </div>
         <div className="stack" style={{ '--gap': '8px' } as React.CSSProperties}>
           <div>
@@ -84,28 +79,30 @@ export function Stage1ResultView({ kind, result }: { kind: Kind; result: Stage1R
               <i className="dot" /> {tl(STAGE1_RATING[result.rating])}
             </Chip>
           </div>
-          <h2>{head}</h2>
+          <h2>{tl(STAGE1_HEADLINE[kind][result.rating])}</h2>
+          <p className="small muted">{t(`${met} of ${total} requirements met.`, `${met} de ${total} requisitos atendidos.`)}</p>
         </div>
       </div>
-      {notes.length > 0 && (
-        <div className="stack" style={{ '--gap': '8px' } as React.CSSProperties}>
-          {[...notes]
-            .sort((a, b) => order[a.level] - order[b.level])
-            .map((f) => (
-              <div key={f.id} className="finding inset">
-                <i className="dot" style={{ color: `var(--${f.level === 'fail' ? 'bad' : 'warn'})` }} />
-                <div>
+      <div className="scorecard">
+        {[...result.findings]
+          .sort((a, b) => order[a.level] - order[b.level])
+          .map((f) => {
+            const Icon = MARK[f.level];
+            return (
+              <div key={f.id} className={`score-row ${f.level}`}>
+                <span className="mark">
+                  <Icon size={14} />
+                </span>
+                <div className="grow">
+                  <div className="tiny faint">{tl(f.topic)}</div>
                   <div style={{ fontWeight: 600 }}>{tl(f.label)}</div>
-                  <div className="muted small">{tl(f.note)}</div>
+                  {f.level !== 'pass' && f.note && <div className="muted small">{tl(f.note)}</div>}
                 </div>
+                <Chip tone={tone[f.level]}>{status[f.level]}</Chip>
               </div>
-            ))}
-        </div>
-      )}
-      <p className="small muted">
-        <Chip tone={tone.pass}>{passes}</Chip>{' '}
-        {t(`of ${result.findings.length} requirements look good.`, `de ${result.findings.length} requisitos estão em ordem.`)}
-      </p>
+            );
+          })}
+      </div>
     </div>
   );
 }

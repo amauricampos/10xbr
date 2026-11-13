@@ -29,7 +29,7 @@ export const api = {
 };
 
 export type User = { id: string; email: string; name: string; role: 'applicant' | 'staff'; lang: 'en' | 'pt'; totp_enabled: number };
-export type Config = { entity: string; openSignup: boolean; setupNeeded: boolean; ai: boolean };
+export type Config = { entity: string; openSignup: boolean; setupNeeded: boolean; ai: boolean; mail?: boolean };
 
 export type AiResult = {
   doc_type: string;
@@ -111,4 +111,5 @@ export type Lead = {
   kind: import('../shared/process').Kind;
   s1_rating: import('../shared/process').Stage1Rating;
   updated_at: number;
+  scorecard_sent_at: number | null;
 };

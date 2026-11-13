@@ -2,7 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Brand } from './pages/Brand';
-import { Landing, QuickCheck, Setup, SignIn, SignUp } from './pages/Public';
+import { MarketingLanding } from './pages/Marketing';
+import { Landing, QuickCheck, Resume, Setup, SignIn, SignUp } from './pages/Public';
 import { Report } from './pages/Review';
 import { StaffHome } from './pages/Staff';
 import { AppHome, StaffCase } from './pages/Workspace';
@@ -16,6 +17,8 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      <Route path="/sell" element={<MarketingLanding />} />
+      <Route path="/resume/:id" element={<Resume />} />
       <Route path="/check/:kind" element={<QuickCheck />} />
       <Route path="/signup" element={<SignUp />} />
       <Route path="/signin" element={<SignIn />} />

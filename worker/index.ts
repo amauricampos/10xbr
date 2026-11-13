@@ -19,6 +19,7 @@ import { HttpError, now, type AppEnv, type Env, type User } from './env';
 import { MAX_FILE_BYTES, MAX_FILES_PER_CASE, cleanFilename, deleteFile, getFile, putFile, sniff } from './storage';
 import { docLabel, docsFor } from '../shared/documents';
 import { NDA_VERSION, ndaText } from '../shared/legal';
+import { mailReady, scorecardEmail, sendMail } from './scorecard';
 import {
   DISCLOSURES,
   LAST_STAGE,
@@ -159,6 +160,7 @@ app.get('/auth/me', async (c) => {
       openSignup: c.env.OPEN_SIGNUP === 'true',
       setupNeeded: !(await staffExists(c.env)),
       ai: !!c.env.AI,
+      mail: mailReady(c.env),
     },
   });
 });
@@ -213,20 +215,48 @@ app.post('/leads', async (c) => {
   if (!stage1Complete(body.kind, body.s1_answers)) throw new HttpError(400, 'incomplete');
   const result = scoreStage1(body.kind, body.s1_answers);
   const t = now();
-  await c.env.DB.prepare(
+  const row = await c.env.DB.prepare(
     `INSERT INTO leads (id, email, name, kind, lang, s1_answers, s1_rating, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (email, kind) DO UPDATE SET name = excluded.name, lang = excluded.lang, s1_answers = excluded.s1_answers, s1_rating = excluded.s1_rating, updated_at = excluded.updated_at`,
+     ON CONFLICT (email, kind) DO UPDATE SET name = excluded.name, lang = excluded.lang, s1_answers = excluded.s1_answers, s1_rating = excluded.s1_rating, updated_at = excluded.updated_at
+     RETURNING id`,
   )
     .bind(randomToken(16), body.email, body.name, body.kind, body.lang, JSON.stringify(body.s1_answers), result.rating, t, t)
-    .run();
-  return c.json({ ok: true });
+    .first<{ id: string }>();
+
+  // A recipient gets at most three scorecards a day, so the form cannot be used to flood an inbox.
+  let emailed = false;
+  if (row && mailReady(c.env)) {
+    emailed = await rateLimit(c.env, `scorecard:${body.email}`, 3, 86400).then(
+      () => true,
+      () => false,
+    );
+    if (emailed) {
+      const mail = scorecardEmail({ kind: body.kind, lang: body.lang, name: body.name, result, link: `${new URL(c.req.url).origin}/resume/${row.id}` });
+      c.executionCtx.waitUntil(
+        sendMail(c.env, { to: body.email, ...mail }).then(async (ok) => {
+          if (ok) await c.env.DB.prepare('UPDATE leads SET scorecard_sent_at = ? WHERE id = ?').bind(now(), row.id).run();
+        }),
+      );
+    }
+  }
+  return c.json({ ok: true, emailed });
+});
+
+/** Opens a saved result from the link in the scorecard email. The id is an unguessable token. */
+app.get('/leads/:id', async (c) => {
+  await rateLimit(c.env, `resume:${c.get('ip')}`, 30, 3600);
+  const row = await c.env.DB.prepare('SELECT kind, name, email, s1_answers FROM leads WHERE id = ?')
+    .bind(c.req.param('id'))
+    .first<{ kind: Kind; name: string; email: string; s1_answers: string }>();
+  if (!row) throw new HttpError(404, 'not_found');
+  return c.json({ kind: row.kind, name: row.name, email: row.email, answers: JSON.parse(row.s1_answers) });
 });
 
 /** People who saw a result but have not created an account. */
 app.get('/leads', async (c) => {
   requireStaff(c);
   const { results } = await c.env.DB.prepare(
-    `SELECT l.id, l.email, l.name, l.kind, l.s1_rating, l.updated_at FROM leads l
+    `SELECT l.id, l.email, l.name, l.kind, l.s1_rating, l.updated_at, l.scorecard_sent_at FROM leads l
      LEFT JOIN users u ON u.email = l.email WHERE u.id IS NULL ORDER BY l.updated_at DESC LIMIT 500`,
   ).all();
   return c.json({ leads: results });

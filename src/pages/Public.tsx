@@ -1,11 +1,11 @@
-import { ArrowRight, EyeOff, Fingerprint, KeyRound, Lock, Plane, ScrollText, Sparkles, Target, Users, Wallet } from 'lucide-react';
+import { ArrowRight, Building2, Check, KeyRound, MailCheck, Plane } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { KINDS, scoreStage1, stage1Complete, type Kind, type Stage1Answers } from '../../shared/process';
 import { api, type User } from '../api';
 import { useSession } from '../session';
 import { Stage1ResultView, Stage1Wizard } from '../stage1';
-import { Disclaimer, Field, Nav, useAction } from '../ui';
+import { Disclaimer, Field, Nav, PageLoader, useAction } from '../ui';
 
 const DRAFT_KEY = 'quickcheck';
 type Contact = { name: string; email: string };
@@ -24,208 +24,107 @@ export function loadDraft(): Draft | null {
 const saveDraft = (d: Draft) => sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d));
 
 export function Landing() {
-  const { t, user } = useSession();
+  const { t, user, config } = useSession();
   if (user) return <Navigate to="/app" replace />;
-  const why = [
-    {
-      icon: Target,
-      title: t('Buyers who need to close', 'Compradores que precisam fechar'),
-      text: t(
-        'Their move to the U.S. depends on owning an operating business. They are not browsing. They are buying.',
-        'A mudança deles para os EUA depende de ter um negócio em operação. Eles não estão só olhando. Estão comprando.',
-      ),
-    },
-    {
-      icon: Wallet,
-      title: t('Funds checked before you meet', 'Recursos verificados antes do contato'),
-      text: t(
-        'We review each buyer’s company, track record and capital before any introduction, so your time goes to real offers.',
-        'Analisamos a empresa, o histórico e o capital de cada comprador antes de qualquer apresentação, para que o seu tempo vá para propostas reais.',
-      ),
-    },
-    {
-      icon: Users,
-      title: t('What you built carries on', 'O que você construiu continua'),
-      text: t(
-        'These buyers need the business to keep running with its team. They are buying it to operate it, not to strip it.',
-        'Esses compradores precisam que o negócio continue funcionando com a equipe. Compram para operar, não para desmontar.',
-      ),
-    },
-    {
-      icon: EyeOff,
-      title: t('Private from start to finish', 'Sigilo do começo ao fim'),
-      text: t(
-        'Your business is never listed publicly. Details go only to screened buyers, under a signed NDA.',
-        'O seu negócio nunca é anunciado publicamente. Os detalhes vão apenas para compradores selecionados, sob NDA assinado.',
-      ),
-    },
-  ];
   const steps = [
     {
       time: t('2 min', '2 min'),
-      title: t('See if you qualify', 'Veja se você se qualifica'),
-      text: t('Eight one-tap questions. You get the answer right away.', 'Oito perguntas de um toque. A resposta sai na hora.'),
+      title: t('Eight quick questions', 'Oito perguntas rápidas'),
+      text: config.mail
+        ? t('One tap each. We email you a scorecard with the result.', 'Um toque cada. Enviamos um scorecard com o resultado por e-mail.')
+        : t('One tap each. You get a scorecard with the result.', 'Um toque cada. Você recebe um scorecard com o resultado.'),
     },
     {
       time: t('5 min', '5 min'),
-      title: t('Share a few numbers', 'Informe alguns números'),
-      text: t('Revenue, earnings, team and asking price. Round numbers are fine.', 'Faturamento, lucro, equipe e preço pedido. Números redondos bastam.'),
+      title: t('A few numbers', 'Alguns números'),
+      text: t('Revenue, earnings and team size. Round numbers are fine.', 'Faturamento, lucro e tamanho da equipe. Números redondos bastam.'),
     },
     {
       time: t('1–3 days', '1–3 dias'),
-      title: t('Back it up', 'Comprove'),
-      text: t('Sign the NDA and upload five documents you already have.', 'Assine o NDA e envie cinco documentos que você já tem.'),
+      title: t('Five core documents', 'Cinco documentos principais'),
+      text: t('You sign a confidentiality agreement first, then upload them or share a folder link.', 'Você assina antes um acordo de confidencialidade e depois envia os arquivos ou o link de uma pasta.'),
     },
     {
       time: t('1–2 weeks', '1–2 semanas'),
-      title: t('Meet your buyers', 'Conheça seus compradores'),
-      text: t('Once verified, your business is presented to screened international buyers.', 'Depois de verificado, o seu negócio é apresentado a compradores internacionais selecionados.'),
+      title: t('Owners and final checks', 'Sócios e verificações finais'),
+      text: t('Who owns the company, a few disclosures and the remaining documents.', 'Quem são os sócios, algumas declarações e os documentos restantes.'),
     },
   ];
-  const safety = [
-    {
-      icon: Lock,
-      title: t('Encrypted before storage', 'Criptografado antes de armazenar'),
-      text: t('Every file is sealed with AES-256 before it is saved. Downloads require your sign-in.', 'Cada arquivo é selado com AES-256 antes de ser salvo. Downloads exigem o seu login.'),
-    },
-    {
-      icon: ScrollText,
-      title: t('NDA before documents', 'NDA antes dos documentos'),
-      text: t('You sign a mutual confidentiality agreement in the platform before sharing anything.', 'Você assina um acordo mútuo de confidencialidade na plataforma antes de compartilhar qualquer coisa.'),
-    },
-    {
-      icon: Fingerprint,
-      title: t('Every access is logged', 'Todo acesso é registrado'),
-      text: t('A permanent record shows who opened, uploaded or changed anything.', 'Um registro permanente mostra quem abriu, enviou ou alterou qualquer item.'),
-    },
-    {
-      icon: Sparkles,
-      title: t('AI reads first, people decide', 'A IA lê primeiro, pessoas decidem'),
-      text: t('AI takes the first pass on every answer and document. Our team reviews each step.', 'A IA faz a primeira leitura de cada resposta e documento. Nossa equipe revisa cada etapa.'),
-    },
+  const tips = [
+    t('Start now with step 1. It needs no documents and no preparation.', 'Comece agora pela etapa 1. Ela não exige documentos nem preparação.'),
+    t('Answer for the business as it is today, not as you plan it to be.', 'Responda sobre o negócio como ele é hoje, não como você planeja que seja.'),
+    t('Choose carefully. Answers in step 1 cannot be changed after you see the result.', 'Escolha com cuidado. As respostas da etapa 1 não podem ser alteradas depois de ver o resultado.'),
+    t('Each step opens only after the one before it is cleared, so we never ask for more than we need.', 'Cada etapa só abre depois que a anterior é aprovada, então nunca pedimos mais do que o necessário.'),
+    t('After step 1 you create a password, and you can stop and come back at any time.', 'Depois da etapa 1 você cria uma senha e pode parar e voltar quando quiser.'),
+    t('Everything you share is confidential, encrypted and seen only by our team.', 'Tudo o que você compartilha é confidencial, criptografado e visto apenas pela nossa equipe.'),
+  ];
+  const tracks = [
+    { kind: 'us' as const, icon: Building2, title: t('My business is in the United States', 'Meu negócio fica nos Estados Unidos'), sub: t('I am the owner and I am considering a sale.', 'Sou o dono e estou considerando vender.') },
+    { kind: 'br' as const, icon: Plane, title: t('My company is in Brazil', 'Minha empresa fica no Brasil'), sub: t('I want to acquire a U.S. business and apply for an L-1 visa.', 'Quero adquirir um negócio nos EUA e solicitar o visto L-1.') },
   ];
   return (
     <>
       <Nav />
-      <main>
-        <section className="hero wrap">
-          <p className="eyebrow">{t('For U.S. business owners', 'Para donos de negócios nos EUA')}</p>
-          <h1 style={{ marginTop: 16 }}>
-            {t('You built it.', 'Você construiu.')}
-            <br />
-            <span className="gradient-text">{t('Now cash in.', 'Agora é hora de colher.')}</span>
-          </h1>
-          <p className="lead">
+      <main className="narrow overview stack" style={{ '--gap': '28px' } as React.CSSProperties}>
+        <div className="stack" style={{ '--gap': '12px' } as React.CSSProperties}>
+          <p className="eyebrow">{t('Business evaluation', 'Avaliação do negócio')}</p>
+          <h1>{t('Let’s evaluate your business.', 'Vamos avaliar o seu negócio.')}</h1>
+          <p className="lead-sm">
             {t(
-              'Years of early mornings and missed weekends are worth something. Retire, enjoy it, or start your next venture. We bring you qualified international buyers who are ready to invest in a business like yours.',
-              'Anos de madrugadas e fins de semana perdidos valem alguma coisa. Aposente-se, aproveite ou comece o próximo projeto. Trazemos compradores internacionais qualificados, prontos para investir em um negócio como o seu.',
+              'As we discussed, this is where you tell us about your business so our team can evaluate it. It is done in four short steps, and you only do the first one today.',
+              'Como conversamos, é aqui que você nos conta sobre o seu negócio para que a nossa equipe possa avaliá-lo. São quatro etapas curtas, e hoje você só faz a primeira.',
             )}
           </p>
-          <Link to="/check/us" className="btn primary lg">
-            {t('See if my business qualifies', 'Ver se o meu negócio se qualifica')} <ArrowRight size={18} />
-          </Link>
-          <p className="tiny faint" style={{ marginTop: 14 }}>
-            {t('Two minutes. Eight questions. Confidential.', 'Dois minutos. Oito perguntas. Confidencial.')}
-          </p>
-        </section>
+        </div>
 
-        <section className="wrap">
-          <div className="center stack" style={{ '--gap': '10px', marginBottom: 28 } as React.CSSProperties}>
-            <p className="eyebrow">{t('Why international buyers', 'Por que compradores internacionais')}</p>
-            <h2>{t('A bigger pool of buyers than your local market.', 'Mais compradores do que o seu mercado local oferece.')}</h2>
-            <p className="muted" style={{ maxWidth: 640, margin: '0 auto' }}>
-              {t(
-                'Established entrepreneurs abroad use the L-1 visa and other investor routes to move to the United States by acquiring a going business. We find them, screen them and bring them to you.',
-                'Empresários estabelecidos no exterior usam o visto L-1 e outras rotas de investidor para se mudar para os Estados Unidos comprando um negócio em funcionamento. Nós os encontramos, avaliamos e trazemos até você.',
-              )}
-            </p>
-          </div>
-          <div className="grid two">
-            {why.map((s) => (
-              <div key={s.title} className="glass feature">
-                <s.icon size={22} style={{ flex: 'none', color: 'var(--mint)', marginTop: 2 }} />
-                <div>
-                  <h3>{s.title}</h3>
-                  <p className="small muted" style={{ marginTop: 4 }}>
-                    {s.text}
-                  </p>
+        <section className="glass pad stack" style={{ '--gap': '6px' } as React.CSSProperties}>
+          <h3 style={{ marginBottom: 8 }}>{t('How it works', 'Como funciona')}</h3>
+          {steps.map((s, i) => (
+            <div key={s.title} className="how-step">
+              <span className="stage-num">{i + 1}</span>
+              <div className="grow">
+                <div className="row between" style={{ alignItems: 'baseline' }}>
+                  <strong>{s.title}</strong>
+                  <span className="tiny faint" style={{ flex: 'none' }}>
+                    {s.time}
+                  </span>
                 </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="section wrap">
-          <div className="center stack" style={{ '--gap': '10px', marginBottom: 28 } as React.CSSProperties}>
-            <p className="eyebrow">{t('How it works', 'Como funciona')}</p>
-            <h2>{t('Four short steps. No paperwork until you qualify.', 'Quatro passos curtos. Nenhum documento antes de se qualificar.')}</h2>
-          </div>
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))' }}>
-            {steps.map((s, i) => (
-              <div key={s.title} className="glass stage-card">
-                <div className="row between">
-                  <span className="stage-num">{i + 1}</span>
-                  <span className="tiny faint">{s.time}</span>
-                </div>
-                <h3 style={{ marginTop: 6 }}>{s.title}</h3>
                 <p className="small muted">{s.text}</p>
               </div>
-            ))}
-          </div>
-          <div className="center" style={{ marginTop: 28 }}>
-            <Link to="/check/us" className="btn primary lg">
-              {t('Start the two-minute check', 'Começar a checagem de dois minutos')} <ArrowRight size={18} />
-            </Link>
-          </div>
-        </section>
-
-        <section className="wrap">
-          <Link to="/check/br" className="glass buyer-card">
-            <Plane size={26} style={{ color: 'var(--mint)', flex: 'none' }} />
-            <div className="grow">
-              <h3>{t('Own a company in Brazil?', 'Tem uma empresa no Brasil?')}</h3>
-              <p className="small muted" style={{ marginTop: 4 }}>
-                {t(
-                  'Buy an established U.S. business and build your path to an L-1 visa. Find out in two minutes if your company qualifies.',
-                  'Compre um negócio estabelecido nos EUA e construa o seu caminho para o visto L-1. Descubra em dois minutos se a sua empresa se qualifica.',
-                )}
-              </p>
             </div>
-            <span className="btn">
-              {t('Check my company', 'Avaliar minha empresa')} <ArrowRight size={17} />
-            </span>
-          </Link>
+          ))}
         </section>
 
-        <section className="section wrap">
-          <div className="center stack" style={{ '--gap': '10px', marginBottom: 28 } as React.CSSProperties}>
-            <p className="eyebrow">{t('Security', 'Segurança')}</p>
-            <h2>{t('Built for documents you would not email.', 'Feito para documentos que você não mandaria por e-mail.')}</h2>
-          </div>
-          <div className="grid two">
-            {safety.map((s) => (
-              <div key={s.title} className="glass feature">
-                <s.icon size={22} style={{ flex: 'none', color: 'var(--mint)', marginTop: 2 }} />
-                <div>
-                  <h3>{s.title}</h3>
-                  <p className="small muted" style={{ marginTop: 4 }}>
-                    {s.text}
-                  </p>
-                </div>
-              </div>
+        <section className="glass pad stack" style={{ '--gap': '12px' } as React.CSSProperties}>
+          <h3>{t('Before you start', 'Antes de começar')}</h3>
+          <ul className="checklist">
+            {tips.map((x) => (
+              <li key={x}>
+                <Check size={16} />
+                <span>{x}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         </section>
+
+        <section className="stack" style={{ '--gap': '12px' } as React.CSSProperties}>
+          <h3>{t('Start step 1', 'Começar a etapa 1')}</h3>
+          {tracks.map((k) => (
+            <Link key={k.kind} to={`/check/${k.kind}`} className="glass start-card">
+              <k.icon size={24} style={{ color: 'var(--mint)', flex: 'none' }} />
+              <div className="grow">
+                <strong>{k.title}</strong>
+                <p className="small muted">{k.sub}</p>
+              </div>
+              <ArrowRight size={20} style={{ flex: 'none' }} />
+            </Link>
+          ))}
+          <p className="small muted">
+            {t('Already started?', 'Já começou?')} <Link to="/signin">{t('Sign in to continue', 'Entre para continuar')}</Link>
+          </p>
+        </section>
+        <Disclaimer />
       </main>
-      <footer className="foot">
-        <div className="wrap stack">
-          <Disclaimer />
-          <div className="row between wrapping">
-            <span>© {new Date().getFullYear()} 10xBR</span>
-            <Link to="/brand">{t('Brand', 'Marca')}</Link>
-          </div>
-        </div>
-      </footer>
     </>
   );
 }
@@ -239,6 +138,7 @@ export function QuickCheck() {
     return d && d.kind === kind ? d : null;
   });
   const [form, setForm] = useState<Contact>({ name: '', email: '' });
+  const [emailed, setEmailed] = useState(false);
   const { busy, error, run } = useAction();
   const navigate = useNavigate();
 
@@ -259,7 +159,8 @@ export function QuickCheck() {
     if (!answers) return;
     run(async () => {
       const c = { name: form.name.trim(), email: form.email.trim() };
-      await api.post('/leads', { ...c, lang, kind, s1_answers: answers });
+      const res = await api.post<{ emailed: boolean }>('/leads', { ...c, lang, kind, s1_answers: answers });
+      setEmailed(res.emailed);
       setDraft({ kind, answers, contact: c });
     });
   };
@@ -277,8 +178,13 @@ export function QuickCheck() {
           ) : !result ? (
             <form className="stack fade-in" style={{ '--gap': '18px' } as React.CSSProperties} onSubmit={capture}>
               <div className="stack" style={{ '--gap': '6px' } as React.CSSProperties}>
-                <h2>{t('Your result is ready.', 'Seu resultado está pronto.')}</h2>
-                <p className="muted small">{t('Enter your name and email to see it.', 'Informe seu nome e e-mail para ver.')}</p>
+                <h2>{t('Almost done.', 'Quase lá.')}</h2>
+                <p className="muted">
+                  {t(
+                    'While we review and process your responses, please give us your name and email so we can send you the report.',
+                    'Enquanto analisamos e processamos as suas respostas, informe seu nome e e-mail para que possamos enviar o relatório.',
+                  )}
+                </p>
               </div>
               <Field label={t('Full name', 'Nome completo')}>
                 <input className="input" required minLength={2} maxLength={120} autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
@@ -288,12 +194,20 @@ export function QuickCheck() {
               </Field>
               {error && <p className="error">{error}</p>}
               <button className="btn primary lg" disabled={busy}>
-                {t('See my result', 'Ver meu resultado')} <ArrowRight size={18} />
+                {t('Send my scorecard', 'Enviar meu scorecard')} <ArrowRight size={18} />
               </button>
               <p className="tiny faint">{t('We use your email only to follow up on this evaluation.', 'Usamos seu e-mail apenas para dar seguimento a esta avaliação.')}</p>
             </form>
           ) : (
             <div className="stack" style={{ '--gap': '24px' } as React.CSSProperties}>
+              {emailed && contact && (
+                <div className="banner good row" style={{ '--gap': '10px' } as React.CSSProperties}>
+                  <MailCheck size={18} style={{ flex: 'none' }} />
+                  <span>
+                    {t('We sent this scorecard to', 'Enviamos este scorecard para')} <strong>{contact.email}</strong>.
+                  </span>
+                </div>
+              )}
               <Stage1ResultView kind={kind} result={result} />
               <Link to="/signup" className="btn primary lg">
                 {result.passed ? t('Save and continue', 'Salvar e continuar') : t('Save and talk to us', 'Salvar e falar conosco')} <ArrowRight size={18} />
@@ -312,6 +226,22 @@ export function QuickCheck() {
       </main>
     </>
   );
+}
+
+/** Opens the saved result from the link in the scorecard email. */
+export function Resume() {
+  const { id } = useParams();
+  const [to, setTo] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .get<{ kind: Kind; name: string; email: string; answers: Stage1Answers }>(`/leads/${id}`)
+      .then((l) => {
+        saveDraft({ kind: l.kind, answers: l.answers, contact: { name: l.name, email: l.email } });
+        setTo(`/check/${l.kind}`);
+      })
+      .catch(() => setTo('/'));
+  }, [id]);
+  return to ? <Navigate to={to} replace /> : <PageLoader />;
 }
 
 /* ------------------------------------------------------------------ */

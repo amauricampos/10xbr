@@ -142,6 +142,7 @@ export function StaffHome() {
                     <th>Email</th>
                     <th>{t('Track', 'Trilha')}</th>
                     <th>L-1</th>
+                    <th>{t('Scorecard', 'Scorecard')}</th>
                     <th>{t('Date', 'Data')}</th>
                   </tr>
                 </thead>
@@ -156,6 +157,7 @@ export function StaffHome() {
                       <td>
                         <Chip tone={s1Tone[l.s1_rating]}>{tl(STAGE1_RATING[l.s1_rating])}</Chip>
                       </td>
+                      <td className="small">{l.scorecard_sent_at ? t('Emailed', 'Enviado') : <span className="faint">{t('Not emailed', 'Não enviado')}</span>}</td>
                       <td className="small muted">{fmtDate(l.updated_at, lang)}</td>
                     </tr>
                   ))}

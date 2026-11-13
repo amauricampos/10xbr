@@ -408,6 +408,22 @@ export const STAGE1_RATING: Record<Stage1Rating, L> = {
   not_compliant: { en: 'Not compliant', pt: 'Não conforme' },
 };
 
+export const STAGE1_HEADLINE: Record<Kind, Record<Stage1Rating, L>> = {
+  us: {
+    compliant: { en: 'Good news. Your business qualifies for our international buyers.', pt: 'Boa notícia. O seu negócio se qualifica para os nossos compradores internacionais.' },
+    gaps: {
+      en: 'Your business can qualify for our international buyers. A few points need attention.',
+      pt: 'O seu negócio pode se qualificar para os nossos compradores internacionais. Alguns pontos precisam de atenção.',
+    },
+    not_compliant: { en: 'As it stands, our L-1 buyers cannot acquire this business.', pt: 'Do jeito que está, os nossos compradores L-1 não podem adquirir este negócio.' },
+  },
+  br: {
+    compliant: { en: 'You and your company meet the core L-1A requirements we screen for.', pt: 'Você e sua empresa atendem aos requisitos centrais do L-1A que analisamos.' },
+    gaps: { en: 'Your profile can work. A few points need attention.', pt: 'Seu perfil pode funcionar. Alguns pontos precisam de atenção.' },
+    not_compliant: { en: 'Something essential is missing today. Here is what to fix.', pt: 'Falta algo essencial hoje. Veja o que corrigir.' },
+  },
+};
+
 export function stage1Complete(kind: Kind, a: Stage1Answers): boolean {
   return QUESTIONS[kind].every((q) => q.options.some((o) => o.value === a[q.id]));
 }

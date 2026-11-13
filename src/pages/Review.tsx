@@ -180,7 +180,11 @@ export function Report() {
             <div className="inset verdict">
               <span className="small muted">{t('L-1 compliance', 'Conformidade L-1')}</span>
               <span className="big">{c.s1_result ? tl(STAGE1_RATING[c.s1_result.rating]) : dash}</span>
-              {c.s1_result && <Chip tone={s1Tone[c.s1_result.rating]}>{c.s1_result.score}/100</Chip>}
+              {c.s1_result && (
+                <Chip tone={s1Tone[c.s1_result.rating]}>
+                  {c.s1_result.findings.filter((f) => f.level === 'pass').length}/{c.s1_result.findings.length} {t('met', 'atendidos')}
+                </Chip>
+              )}
             </div>
             <div className="inset verdict">
               <span className="small muted">{t('Business health', 'Saúde do negócio')}</span>

@@ -30,6 +30,22 @@ The team can override a stopped gate, send a stage back with a note, decline, or
 
 Questions, thresholds and scoring live in `shared/process.ts`. The document lists are in `shared/documents.ts`, and the NDA text in `shared/legal.ts`.
 
+## Pages
+
+- `/`: overview and instructions for an owner who has already been briefed, then straight to the form.
+- `/sell`: the marketing landing page for U.S. owners who arrive cold. It is kept for later and is not linked from anywhere.
+
+## Scorecard email
+
+After the eight questions the owner gives a name and email and sees a scorecard: how many of the eight requirements are met, and each one with its status. The same scorecard is emailed through [Resend](https://resend.com) when these are set:
+
+```bash
+npx wrangler secret put RESEND_API_KEY
+npx wrangler secret put MAIL_FROM       # e.g. 10xBR <hello@10xbr.com>, on a domain verified with Resend
+```
+
+Without them nothing is sent and the scorecard is shown on screen only. The email links to `/resume/:id`, which reopens the saved result. One address receives at most three scorecards a day.
+
 ## Stack
 
 - Cloudflare Workers with Hono (`worker/`)
