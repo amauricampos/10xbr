@@ -42,7 +42,7 @@ export function Landing() {
   ];
   const notes = [
     t('Answer for your business as it is today.', 'Responda sobre o negócio como ele é hoje.'),
-    t('Answers are final. Pick carefully.', 'As respostas são definitivas. Escolha com cuidado.'),
+    t('Be as accurate as you can. Your result depends on it.', 'Seja o mais preciso possível. O resultado depende disso.'),
     t('Private. Only our team sees it.', 'Privado. Só a nossa equipe vê.'),
   ];
   return (
