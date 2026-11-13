@@ -1,5 +1,5 @@
-import { Loader2, LogOut, ShieldCheck } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { Eye, EyeOff, Loader2, LogOut, ShieldCheck } from 'lucide-react';
+import { useState, type InputHTMLAttributes, type ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { api } from './api';
 import { useSession } from './session';
@@ -83,6 +83,21 @@ export function Field({ label, help, children }: { label: string; help?: string;
       <label>{label}</label>
       {children}
       {help && <span className="help">{help}</span>}
+    </div>
+  );
+}
+
+/** Password input with a button that shows or hides what was typed. */
+export function PasswordInput(props: Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'className'>) {
+  const { t } = useSession();
+  const [shown, setShown] = useState(false);
+  const label = shown ? t('Hide password', 'Ocultar senha') : t('Show password', 'Mostrar senha');
+  return (
+    <div className="reveal">
+      <input {...props} className="input" type={shown ? 'text' : 'password'} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+      <button type="button" aria-label={label} title={label} aria-pressed={shown} onClick={() => setShown(!shown)}>
+        {shown ? <EyeOff size={18} /> : <Eye size={18} />}
+      </button>
     </div>
   );
 }

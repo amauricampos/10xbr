@@ -5,7 +5,7 @@ import { KINDS, scoreStage1, stage1Complete, type Forms, type Kind, type Stage1A
 import { api, type User } from '../api';
 import { useSession } from '../session';
 import { Stage1ResultView, Stage1Wizard } from '../stage1';
-import { Disclaimer, Field, Nav, PageLoader, useAction } from '../ui';
+import { Disclaimer, Field, Nav, PageLoader, PasswordInput, useAction } from '../ui';
 
 const DRAFT_KEY = 'quickcheck';
 type Contact = { name: string; email: string };
@@ -325,9 +325,7 @@ export function SignUp() {
           <input className="input" type="email" required autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         </Field>
         <Field label={t('Password', 'Senha')} help={t('At least 10 characters.', 'Pelo menos 10 caracteres.')}>
-          <input
-            className="input"
-            type="password"
+          <PasswordInput
             required
             minLength={10}
             autoComplete="new-password"
@@ -379,9 +377,7 @@ export function SignIn() {
           <input className="input" type="email" required autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         </Field>
         <Field label={t('Password', 'Senha')}>
-          <input
-            className="input"
-            type="password"
+          <PasswordInput
             required
             autoComplete="current-password"
             value={form.password}
@@ -456,7 +452,7 @@ export function Setup() {
           <input className="input" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         </Field>
         <Field label={t('Password', 'Senha')} help={t('At least 10 characters.', 'Pelo menos 10 caracteres.')}>
-          <input className="input" type="password" required minLength={10} autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <PasswordInput required minLength={10} autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
         </Field>
         {error && <p className="error">{error}</p>}
         <button className="btn primary lg" disabled={busy}>

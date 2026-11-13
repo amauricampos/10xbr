@@ -6,7 +6,7 @@ import { api, type Lead, type User } from '../api';
 import { useSession } from '../session';
 import { Stage1ResultView } from '../stage1';
 import { Questionnaires } from './Forms';
-import { Chip, Field, Nav, PageLoader, fmtDate, s1Tone, statusTone, useAction } from '../ui';
+import { Chip, Field, Nav, PageLoader, PasswordInput, fmtDate, s1Tone, statusTone, useAction } from '../ui';
 
 /* ------------------------------------------------------------------ */
 /* Leads: people who answered the questions and have no account        */
@@ -554,7 +554,7 @@ export function Join() {
                 <input className="input" required minLength={2} maxLength={120} autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </Field>
               <Field label={t('Password', 'Senha')} help={t('At least 10 characters.', 'Pelo menos 10 caracteres.')}>
-                <input className="input" type="password" required minLength={10} maxLength={200} autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                <PasswordInput required minLength={10} maxLength={200} autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
               </Field>
               {error && <p className="error">{error}</p>}
               <button className="btn primary lg" disabled={busy}>
