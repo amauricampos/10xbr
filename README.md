@@ -36,11 +36,14 @@ Questions, thresholds and scoring live in `shared/process.ts`. The document list
 
 - **Overview**: a funnel per track, from questions answered to catalog, plus what is waiting for the team, and CSV exports of leads and records.
 - **Questionnaires**: edit the L-1 screen for each track, the business health form for each track, and the final disclosures. See below.
-- **Team**: invite by email (single-use link, valid seven days), make or remove admins, reset two-step sign-in, deactivate.
-- **Owner accounts**: every owner with their record, and deactivate.
+- **Users**: every account, team and owners, with search. Invite team members by email (single-use link, valid seven days). A row opens the person's page: profile (name and email language can be edited), access (make or remove admin, reset two-step sign-in, sign out everywhere, deactivate, password reset link), open sessions, their records and L-1 result, and the latest activity by or about them.
 - **Activity**: the full audit log.
 
 Reviewers (team members who are not admins) see `/staff` only.
+
+### Forgotten passwords
+
+"Forgot your password?" on the sign-in page emails a single-use link, valid one hour, when mail is set up. The answer is the same whether or not the email has an account. Until mail is set up the page tells people to ask the team, and an admin creates a link (valid 24 hours, shown once) from the person's page under **Users**, including their own. Choosing a new password signs the person out everywhere; two-step sign-in still applies. Only a hash of each link is stored (migration `0007_password_resets.sql`).
 
 ### Editing the questionnaires
 

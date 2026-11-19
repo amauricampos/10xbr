@@ -385,6 +385,84 @@ app.post('/auth/logout', async (c) => {
   return c.json({ ok: true });
 });
 
+const RESET_MS = 60 * 60 * 1000;
+const ADMIN_RESET_MS = 24 * 60 * 60 * 1000;
+
+/** Replaces any open reset link for the user with a new one and returns its URL. */
+async function createReset(c: Context<AppEnv>, userId: string, ttl: number, createdBy: string | null): Promise<string> {
+  const token = randomToken(32);
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ? OR expires_at < ?').bind(userId, now()),
+    c.env.DB.prepare('INSERT INTO password_resets (token_hash, user_id, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)').bind(await sha256Hex(token), userId, createdBy, now(), now() + ttl),
+  ]);
+  return `${new URL(c.req.url).origin}/reset/${token}`;
+}
+
+function resetEmail(lang: string, name: string, link: string, hours: number) {
+  const pt = lang === 'pt';
+  const life = hours === 1 ? (pt ? 'uma hora' : 'one hour') : pt ? `${hours} horas` : `${hours} hours`;
+  return noticeEmail({
+    subject: pt ? 'Redefina sua senha da 10x BR' : 'Reset your 10x BR password',
+    greeting: pt ? `Olá, ${name},` : `Hello ${name},`,
+    lines: pt
+      ? ['Recebemos um pedido para redefinir a senha da sua conta.', `O link funciona uma vez e expira em ${life}.`]
+      : ['We received a request to reset the password for your account.', `The link works once and expires in ${life}.`],
+    cta: pt ? 'Escolher nova senha' : 'Choose a new password',
+    link,
+    footer: pt ? 'Se você não pediu isso, ignore este e-mail. Sua senha continua a mesma.' : 'If you did not ask for this, ignore this email. Your password stays the same.',
+  });
+}
+
+/** Always answers the same way, so it does not reveal which emails have an account. */
+app.post('/auth/forgot', async (c) => {
+  const { email } = z.object({ email: Email }).parse(await c.req.json());
+  await rateLimit(c.env, `forgot:${c.get('ip')}`, 10, 3600);
+  await rateLimit(c.env, `forgot:${email}`, 3, 3600);
+  if (mailReady(c.env)) {
+    c.executionCtx.waitUntil(
+      (async () => {
+        const u = await c.env.DB.prepare('SELECT id, name, lang, disabled FROM users WHERE email = ?').bind(email).first<{ id: string; name: string; lang: string; disabled: number }>();
+        if (!u || u.disabled) return;
+        const link = await createReset(c, u.id, RESET_MS, null);
+        await sendMail(c.env, { to: email, ...resetEmail(u.lang, u.name, link, 1) });
+      })().catch((e) => console.error('forgot_failed', e)),
+    );
+  }
+  await audit(c, 'password.reset_requested', null, { email });
+  return c.json({ ok: true });
+});
+
+app.get('/auth/reset/:token', async (c) => {
+  await rateLimit(c.env, `reset:${c.get('ip')}`, 30, 3600);
+  const row = await c.env.DB.prepare(
+    'SELECT u.email FROM password_resets r JOIN users u ON u.id = r.user_id WHERE r.token_hash = ? AND r.used_at IS NULL AND r.expires_at > ? AND u.disabled = 0',
+  )
+    .bind(await sha256Hex(c.req.param('token')), now())
+    .first<{ email: string }>();
+  if (!row) throw new HttpError(404, 'not_found');
+  return c.json({ email: row.email });
+});
+
+app.post('/auth/reset', async (c) => {
+  await rateLimit(c.env, `reset:${c.get('ip')}`, 30, 3600);
+  const body = z.object({ token: z.string().min(10).max(200), password: Password }).parse(await c.req.json());
+  // Claiming the link in one statement means two requests cannot both use it.
+  const claim = await c.env.DB.prepare('UPDATE password_resets SET used_at = ?1 WHERE token_hash = ?2 AND used_at IS NULL AND expires_at > ?1 RETURNING user_id')
+    .bind(now(), await sha256Hex(body.token))
+    .first<{ user_id: string }>();
+  const target = claim && (await c.env.DB.prepare('SELECT id, email, role, disabled FROM users WHERE id = ?').bind(claim.user_id).first<{ id: string; email: string; role: User['role']; disabled: number }>());
+  if (!target || target.disabled) throw new HttpError(404, 'not_found', 'This link is no longer valid. Ask for a new one.');
+  const { hash, salt } = await hashPassword(body.password);
+  // Every open session ends, and the person signs in again (with two-step, when it is on).
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE users SET pw_hash = ?, pw_salt = ? WHERE id = ?').bind(hash, salt, target.id),
+    c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id),
+  ]);
+  deleteCookie(c, cookieName(c), { path: '/', secure: new URL(c.req.url).protocol === 'https:' });
+  await audit(c, 'password.reset', null, { user: target.email });
+  return c.json({ ok: true, email: target.email });
+});
+
 app.post('/auth/setup', async (c) => {
   await rateLimit(c.env, `setup:${c.get('ip')}`, 5, 3600);
   const body = z.object({ token: z.string().min(1).max(200), email: Email, name: Name, password: Password }).parse(await c.req.json());
@@ -1091,25 +1169,77 @@ app.delete('/admin/invites/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+app.get('/admin/users/:id', async (c) => {
+  requireAdmin(c);
+  const u = await c.env.DB.prepare('SELECT id, email, name, role, lang, is_admin, disabled, totp_enabled, created_at FROM users WHERE id = ?').bind(c.req.param('id')).first<Record<string, string | number>>();
+  if (!u) throw new HttpError(404, 'not_found');
+  const [sessions, cases, leads, events, reset] = await Promise.all([
+    c.env.DB.prepare('SELECT created_at, expires_at, ip, user_agent FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 20').bind(u.id, now()).all(),
+    c.env.DB.prepare('SELECT id, kind, company_name, industry, location, stage, status, s1_result, s2_result, created_at, updated_at FROM cases WHERE user_id = ? ORDER BY created_at').bind(u.id).all<Record<string, string | number | null>>(),
+    c.env.DB.prepare('SELECT id, kind, s1_rating, created_at, updated_at, cleared_at, cleared_by FROM leads WHERE email = ? ORDER BY updated_at DESC').bind(u.email).all(),
+    c.env.DB.prepare(
+      `SELECT a.id, a.at, a.actor_email, a.action, a.case_id, a.detail, a.ip, k.company_name FROM audit_log a LEFT JOIN cases k ON k.id = a.case_id
+       WHERE a.actor_id = ?1 OR a.actor_email = ?2 OR instr(a.detail, ?2) > 0 ORDER BY a.id DESC LIMIT 50`,
+    ).bind(u.id, u.email).all(),
+    c.env.DB.prepare('SELECT expires_at, created_by FROM password_resets WHERE user_id = ? AND used_at IS NULL AND expires_at > ?').bind(u.id, now()).first(),
+  ]);
+  return c.json({
+    user: u,
+    sessions: sessions.results,
+    cases: cases.results.map((k) => ({
+      ...k,
+      s1_result: undefined,
+      s2_result: undefined,
+      s1_rating: parse<Stage1Result>(k.s1_result as string | null)?.rating ?? null,
+      s2_rating: parse<Stage2Result>(k.s2_result as string | null)?.rating ?? null,
+    })),
+    leads: leads.results,
+    events: events.results,
+    reset,
+  });
+});
+
+/** A link for choosing a new password, for when the person cannot get one by email. */
+app.post('/admin/users/:id/reset-link', async (c) => {
+  const u = requireAdmin(c);
+  const target = await c.env.DB.prepare('SELECT id, email, name, lang, disabled FROM users WHERE id = ?').bind(c.req.param('id')).first<{ id: string; email: string; name: string; lang: string; disabled: number }>();
+  if (!target) throw new HttpError(404, 'not_found');
+  if (target.disabled) throw new HttpError(409, 'disabled', 'Reactivate this account first.');
+  const link = await createReset(c, target.id, ADMIN_RESET_MS, u.email);
+  await audit(c, 'password.reset_link_created', null, { user: target.email });
+  const emailed = await sendMail(c.env, { to: target.email, ...resetEmail(target.lang, target.name, link, 24) });
+  // The link is shown once so it can be passed on by hand when mail is not set up.
+  return c.json({ link, emailed });
+});
+
 app.put('/admin/users/:id', async (c) => {
   const u = requireAdmin(c);
-  const body = z.object({ disabled: z.boolean().optional(), is_admin: z.boolean().optional(), reset_totp: z.literal(true).optional() }).parse(await c.req.json());
+  const body = z
+    .object({ disabled: z.boolean().optional(), is_admin: z.boolean().optional(), reset_totp: z.literal(true).optional(), sign_out: z.literal(true).optional(), name: Name.optional(), lang: LangZ.optional() })
+    .parse(await c.req.json());
   const target = await c.env.DB.prepare('SELECT id, email, role FROM users WHERE id = ?').bind(c.req.param('id')).first<{ id: string; email: string; role: string }>();
   if (!target) throw new HttpError(404, 'not_found');
   // Nobody changes their own access, so the team can never be left without an admin.
-  if (target.id === u.id) throw new HttpError(409, 'self', 'Ask another admin to change your own access.');
+  const access = body.disabled !== undefined || body.is_admin !== undefined || body.reset_totp || body.sign_out;
+  if (target.id === u.id && access) throw new HttpError(409, 'self', 'Ask another admin to change your own access.');
   if (body.is_admin !== undefined && target.role !== 'staff') throw new HttpError(409, 'not_team');
 
   const stmts: D1PreparedStatement[] = [];
+  if (body.name !== undefined) stmts.push(c.env.DB.prepare('UPDATE users SET name = ? WHERE id = ?').bind(body.name, target.id));
+  if (body.lang !== undefined) stmts.push(c.env.DB.prepare('UPDATE users SET lang = ? WHERE id = ?').bind(body.lang, target.id));
   if (body.disabled !== undefined) {
     stmts.push(c.env.DB.prepare('UPDATE users SET disabled = ? WHERE id = ?').bind(body.disabled ? 1 : 0, target.id));
-    if (body.disabled) stmts.push(c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id));
+    if (body.disabled) {
+      stmts.push(c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id));
+      stmts.push(c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(target.id));
+    }
   }
   if (body.is_admin !== undefined) stmts.push(c.env.DB.prepare('UPDATE users SET is_admin = ? WHERE id = ?').bind(body.is_admin ? 1 : 0, target.id));
   if (body.reset_totp) {
     stmts.push(c.env.DB.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE id = ?').bind(target.id));
     stmts.push(c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id));
   }
+  if (body.sign_out) stmts.push(c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id));
   if (!stmts.length) throw new HttpError(400, 'nothing_to_do');
   await c.env.DB.batch(stmts);
   await audit(c, 'user.updated', null, { user: target.email, ...body });

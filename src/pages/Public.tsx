@@ -383,6 +383,9 @@ export function SignIn() {
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
           />
+          <Link className="small" to="/forgot" style={{ alignSelf: 'flex-end' }}>
+            {t('Forgot your password?', 'Esqueceu a senha?')}
+          </Link>
         </Field>
         {needCode && (
           <Field label={t('6-digit code from your authenticator app', 'Código de 6 dígitos do seu app autenticador')}>
@@ -411,6 +414,124 @@ export function SignIn() {
           <Link to="/setup">{t('First-time staff setup', 'Configuração inicial da equipe')}</Link>
         </p>
       )}
+    </AuthShell>
+  );
+}
+
+/** Asks for a link to choose a new password. The answer is the same whether or not the email has an account. */
+export function Forgot() {
+  const { t, user, config } = useSession();
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const { busy, error, run } = useAction();
+  if (user) return <Navigate to="/app" replace />;
+  const back = (
+    <p className="small muted center">
+      <Link to="/signin">{t('Back to sign in', 'Voltar para entrar')}</Link>
+    </p>
+  );
+  if (!config.mail) {
+    return (
+      <AuthShell title={t('Forgot your password?', 'Esqueceu a senha?')}>
+        <p className="muted">
+          {t(
+            'We cannot email reset links yet. Ask your 10x BR contact for a password reset link and they will send you one.',
+            'Ainda não conseguimos enviar links por e-mail. Peça um link de redefinição de senha ao seu contato na 10x BR.',
+          )}
+        </p>
+        {back}
+      </AuthShell>
+    );
+  }
+  if (sent) {
+    return (
+      <AuthShell title={t('Check your email', 'Confira seu e-mail')}>
+        <p className="muted">
+          {t(`If ${email} has an account, a link to choose a new password is on its way. It works once and expires in one hour.`, `Se ${email} tiver uma conta, um link para escolher uma nova senha está a caminho. Ele funciona uma vez e expira em uma hora.`)}
+        </p>
+        <p className="small muted">{t('Nothing after a few minutes? Check the spam folder, then try again.', 'Nada depois de alguns minutos? Veja a caixa de spam e tente de novo.')}</p>
+        {back}
+      </AuthShell>
+    );
+  }
+  return (
+    <AuthShell title={t('Forgot your password?', 'Esqueceu a senha?')} sub={t('Enter your email and we will send you a link to choose a new one.', 'Informe seu e-mail e enviaremos um link para escolher uma nova.')}>
+      <form
+        className="stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(async () => {
+            await api.post('/auth/forgot', { email });
+            setSent(true);
+          });
+        }}
+      >
+        <Field label="Email">
+          <input className="input" type="email" required autoFocus autoComplete="email" maxLength={200} value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary lg" disabled={busy}>
+          {t('Send reset link', 'Enviar link')}
+        </button>
+      </form>
+      {back}
+    </AuthShell>
+  );
+}
+
+/** Opens a reset link and sets the new password. */
+export function ResetPassword() {
+  const { token } = useParams();
+  const { t, refresh } = useSession();
+  const [email, setEmail] = useState<string | null | undefined>(undefined);
+  const [password, setPassword] = useState('');
+  const [done, setDone] = useState(false);
+  const { busy, error, run } = useAction();
+  useEffect(() => {
+    api.get<{ email: string }>(`/auth/reset/${token}`).then((r) => setEmail(r.email), () => setEmail(null));
+  }, [token]);
+  if (email === undefined) return <PageLoader />;
+  if (done) {
+    return (
+      <AuthShell title={t('Password changed', 'Senha alterada')}>
+        <p className="muted">{t('Sign in with your new password. Other devices were signed out.', 'Entre com a nova senha. Os outros dispositivos foram desconectados.')}</p>
+        <Link className="btn primary lg" to="/signin">
+          {t('Sign in', 'Entrar')}
+        </Link>
+      </AuthShell>
+    );
+  }
+  if (email === null) {
+    return (
+      <AuthShell title={t('This link is no longer valid', 'Este link não é mais válido')}>
+        <p className="muted">{t('It was already used or it expired.', 'Ele já foi usado ou expirou.')}</p>
+        <Link className="btn" to="/forgot">
+          {t('Ask for a new link', 'Pedir um novo link')}
+        </Link>
+      </AuthShell>
+    );
+  }
+  return (
+    <AuthShell title={t('Choose a new password', 'Escolha uma nova senha')} sub={email}>
+      <form
+        className="stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(async () => {
+            await api.post('/auth/reset', { token, password });
+            await refresh();
+            setDone(true);
+          });
+        }}
+      >
+        <Field label={t('New password', 'Nova senha')} help={t('At least 10 characters.', 'Pelo menos 10 caracteres.')}>
+          <PasswordInput required autoFocus minLength={10} maxLength={200} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </Field>
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary lg" disabled={busy}>
+          {t('Save password', 'Salvar senha')}
+        </button>
+      </form>
     </AuthShell>
   );
 }

@@ -1,29 +1,17 @@
 import { Check, Copy, Download, MailPlus, Trash2, UserCheck, UserX } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { LAST_STAGE, STAGE1_RATING, STATUS, scoreStage1, stage1Complete, type Kind, type Status } from '../../shared/process';
 import { api, type Lead, type User } from '../api';
 import { useSession } from '../session';
 import { Stage1ResultView } from '../stage1';
 import { Questionnaires } from './Forms';
-import { Chip, Field, Nav, PageLoader, PasswordInput, fmtDate, s1Tone, statusTone, useAction } from '../ui';
+import { Users } from './Users';
+import { Chip, CopyButton, Field, Nav, PageLoader, PasswordInput, fmtDate, s1Tone, statusTone, useAction } from '../ui';
 
 /* ------------------------------------------------------------------ */
 /* Leads: people who answered the questions and have no account        */
 /* ------------------------------------------------------------------ */
-
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      className="btn sm"
-      type="button"
-      onClick={() => navigator.clipboard.writeText(text).then(() => setDone(true), () => undefined)}
-    >
-      {done ? <Check size={14} /> : <Copy size={14} />} {label}
-    </button>
-  );
-}
 
 function LeadDetail({ lead, reload }: { lead: Lead; reload: () => Promise<void> }) {
   const { t, user, forms } = useSession();
@@ -248,191 +236,6 @@ function Overview() {
   );
 }
 
-type Row = {
-  id: string;
-  email: string;
-  name: string;
-  role: 'applicant' | 'staff';
-  is_admin: number;
-  disabled: number;
-  totp_enabled: number;
-  created_at: number;
-  last_seen: number | null;
-  case_id: string | null;
-  kind: Kind | null;
-  stage: number | null;
-  status: Status | null;
-  company_name: string | null;
-};
-type Invite = { id: string; email: string; is_admin: number; created_by: string; expires_at: number };
-
-function People({ role }: { role: 'staff' | 'applicant' }) {
-  const { t, tl, lang, user } = useSession();
-  const navigate = useNavigate();
-  const [data, setData] = useState<{ users: Row[]; invites: Invite[] } | null>(null);
-  const [form, setForm] = useState({ email: '', is_admin: false });
-  const [invited, setInvited] = useState<{ link: string; emailed: boolean; email: string } | null>(null);
-  const { busy, error, run } = useAction();
-  const reload = useCallback(() => api.get<{ users: Row[]; invites: Invite[] }>('/admin/users').then(setData), []);
-  useEffect(() => {
-    reload().catch(() => undefined);
-  }, [reload]);
-  if (!data) return <PageLoader />;
-
-  const rows = data.users.filter((u) => u.role === role);
-  const update = (id: string, body: object) => run(async () => { await api.put(`/admin/users/${id}`, body); await reload(); });
-
-  return (
-    <div className="stack" style={{ '--gap': '18px' } as React.CSSProperties}>
-      {role === 'staff' && (
-        <form
-          className="glass pad stack"
-          onSubmit={(e) => {
-            e.preventDefault();
-            run(async () => {
-              const r = await api.post<{ link: string; emailed: boolean }>('/admin/invites', form);
-              setInvited({ ...r, email: form.email });
-              setForm({ email: '', is_admin: false });
-              await reload();
-            });
-          }}
-        >
-          <h3>{t('Invite a team member', 'Convidar um membro da equipe')}</h3>
-          <p className="small muted">{t('Team members can open every record and decide on it. Admins can also manage the team and export data.', 'Membros da equipe abrem e decidem todos os registros. Admins também gerenciam a equipe e exportam dados.')}</p>
-          <div className="row wrapping" style={{ alignItems: 'flex-end' }}>
-            <div className="grow" style={{ minWidth: 220 }}>
-              <Field label="Email">
-                <input className="input" type="email" required maxLength={200} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-              </Field>
-            </div>
-            <label className="row small" style={{ '--gap': '8px', paddingBottom: 12 } as React.CSSProperties}>
-              <input type="checkbox" checked={form.is_admin} onChange={(e) => setForm({ ...form, is_admin: e.target.checked })} /> {t('Admin', 'Admin')}
-            </label>
-            <button className="btn primary" disabled={busy} style={{ marginBottom: 2 }}>
-              <MailPlus size={16} /> {t('Invite', 'Convidar')}
-            </button>
-          </div>
-          {invited && (
-            <div className="banner good stack" style={{ '--gap': '8px' } as React.CSSProperties}>
-              <span>
-                {invited.emailed
-                  ? t(`Invitation emailed to ${invited.email}.`, `Convite enviado para ${invited.email}.`)
-                  : t(`Email is not set up. Send this link to ${invited.email} yourself. It is shown only once.`, `O e-mail não está configurado. Envie este link para ${invited.email}. Ele é mostrado só uma vez.`)}
-              </span>
-              <code style={{ wordBreak: 'break-all' }}>{invited.link}</code>
-              <div>
-                <CopyButton text={invited.link} label={t('Copy link', 'Copiar link')} />
-              </div>
-            </div>
-          )}
-          {data.invites.length > 0 && (
-            <div className="stack" style={{ '--gap': '6px' } as React.CSSProperties}>
-              {data.invites.map((i) => (
-                <div key={i.id} className="row between small">
-                  <span>
-                    {i.email} {i.is_admin ? <Chip>{t('Admin', 'Admin')}</Chip> : null}{' '}
-                    <span className="faint">
-                      · {t('expires', 'expira')} {fmtDate(i.expires_at, lang)}
-                    </span>
-                  </span>
-                  <button type="button" className="btn ghost sm" disabled={busy} onClick={() => run(async () => { await api.del(`/admin/invites/${i.id}`); await reload(); })}>
-                    {t('Cancel invite', 'Cancelar convite')}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </form>
-      )}
-      {error && <p className="error">{error}</p>}
-
-      <div className="glass" style={{ overflowX: 'auto' }}>
-        {rows.length === 0 ? (
-          <p className="pad muted center">{t('No accounts yet.', 'Nenhuma conta ainda.')}</p>
-        ) : (
-          <table className="list static cards">
-            <thead>
-              <tr>
-                <th>{t('Name', 'Nome')}</th>
-                <th>{role === 'staff' ? t('Access', 'Acesso') : t('Record', 'Registro')}</th>
-                <th>{role === 'staff' ? t('Two-step sign-in', 'Login em duas etapas') : t('Status', 'Status')}</th>
-                <th>{t('Last sign-in', 'Último acesso')}</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((u) => {
-                const me = u.id === user?.id;
-                return (
-                  <tr key={u.id} style={u.disabled ? { opacity: 0.55 } : undefined}>
-                    <td>
-                      <div style={{ fontWeight: 600 }}>
-                        {u.name} {me && <span className="faint small">({t('you', 'você')})</span>}
-                      </div>
-                      <div className="small muted">{u.email}</div>
-                    </td>
-                    {role === 'staff' ? (
-                      <>
-                        <td>
-                          {u.disabled ? <Chip tone="bad">{t('Deactivated', 'Desativado')}</Chip> : u.is_admin ? <Chip tone="info">{t('Admin', 'Admin')}</Chip> : <Chip>{t('Reviewer', 'Revisor')}</Chip>}
-                        </td>
-                        <td>{u.totp_enabled ? <Chip tone="good">{t('On', 'Ativo')}</Chip> : <Chip tone="warn">{t('Off', 'Desligado')}</Chip>}</td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="small">
-                          {u.case_id ? (
-                            <button className="btn ghost sm" onClick={() => navigate(`/case/${u.case_id}`)}>
-                              {u.company_name || (u.kind === 'us' ? t('U.S. business', 'Negócio nos EUA') : t('Candidate', 'Candidato'))} · {u.stage}/{LAST_STAGE}
-                            </button>
-                          ) : (
-                            <span className="faint">—</span>
-                          )}
-                        </td>
-                        <td>
-                          {u.disabled ? <Chip tone="bad">{t('Deactivated', 'Desativado')}</Chip> : u.status ? <Chip tone={statusTone[u.status]}>{tl(STATUS[u.status])}</Chip> : <span className="faint">—</span>}
-                        </td>
-                      </>
-                    )}
-                    <td className="small muted">{u.last_seen ? fmtDate(u.last_seen, lang) : '—'}</td>
-                    <td>
-                      {!me && (
-                        <div className="row wrapping" style={{ '--gap': '4px', justifyContent: 'flex-end' } as React.CSSProperties}>
-                          {role === 'staff' && !u.disabled && (
-                            <button className="btn ghost sm" disabled={busy} onClick={() => update(u.id, { is_admin: !u.is_admin })}>
-                              {u.is_admin ? t('Remove admin', 'Remover admin') : t('Make admin', 'Tornar admin')}
-                            </button>
-                          )}
-                          {role === 'staff' && !!u.totp_enabled && (
-                            <button
-                              className="btn ghost sm"
-                              disabled={busy}
-                              onClick={() => confirm(t('Turn off two-step sign-in for this person? They will set it up again.', 'Desligar o login em duas etapas desta pessoa? Ela configurará de novo.')) && update(u.id, { reset_totp: true })}
-                            >
-                              {t('Reset two-step', 'Redefinir duas etapas')}
-                            </button>
-                          )}
-                          <button
-                            className={`btn ghost sm ${u.disabled ? '' : 'danger'}`}
-                            disabled={busy}
-                            onClick={() => (u.disabled || confirm(t(`Deactivate ${u.email}? They are signed out and cannot sign in.`, `Desativar ${u.email}? A pessoa é desconectada e não pode entrar.`))) && update(u.id, { disabled: !u.disabled })}
-                          >
-                            {u.disabled ? <UserCheck size={14} /> : <UserX size={14} />} {u.disabled ? t('Reactivate', 'Reativar') : t('Deactivate', 'Desativar')}
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
-
 type Event = { id: number; at: number; actor_email: string | null; action: string; case_id: string | null; detail: string | null; company_name: string | null };
 
 function Activity() {
@@ -478,15 +281,19 @@ function Activity() {
   );
 }
 
-const TABS = ['overview', 'forms', 'team', 'owners', 'activity'] as const;
+const TABS = ['overview', 'forms', 'users', 'activity'] as const;
+type Tab = (typeof TABS)[number];
 
 export function AdminHome() {
   const { t, user } = useSession();
-  const [tab, setTab] = useState<(typeof TABS)[number]>('overview');
+  const [params, setParams] = useSearchParams();
+  const wanted = params.get('tab') as Tab | null;
+  const tab: Tab = wanted && TABS.includes(wanted) ? wanted : 'overview';
+  const setTab = (k: Tab) => setParams(k === 'overview' ? {} : { tab: k }, { replace: true });
   if (!user) return <Navigate to="/signin" replace />;
   if (user.role !== 'staff') return <Navigate to="/app" replace />;
   if (!user.is_admin) return <Navigate to="/staff" replace />;
-  const label = { overview: t('Overview', 'Visão geral'), forms: t('Questionnaires', 'Questionários'), team: t('Team', 'Equipe'), owners: t('Owner accounts', 'Contas de donos'), activity: t('Activity', 'Atividade') };
+  const label = { overview: t('Overview', 'Visão geral'), forms: t('Questionnaires', 'Questionários'), users: t('Users', 'Usuários'), activity: t('Activity', 'Atividade') };
   return (
     <>
       <Nav />
@@ -503,8 +310,7 @@ export function AdminHome() {
         </div>
         {tab === 'overview' && <Overview />}
         {tab === 'forms' && <Questionnaires />}
-        {tab === 'team' && <People role="staff" />}
-        {tab === 'owners' && <People role="applicant" />}
+        {tab === 'users' && <Users />}
         {tab === 'activity' && <Activity />}
       </main>
     </>

@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Loader2, LogOut, ShieldCheck } from 'lucide-react';
+import { Check, Copy, Eye, EyeOff, Loader2, LogOut, ShieldCheck } from 'lucide-react';
 import { useState, type InputHTMLAttributes, type ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { api } from './api';
@@ -84,6 +84,15 @@ export function Field({ label, help, children }: { label: string; help?: string;
       {children}
       {help && <span className="help">{help}</span>}
     </div>
+  );
+}
+
+export function CopyButton({ text, label }: { text: string; label: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button className="btn sm" type="button" onClick={() => navigator.clipboard.writeText(text).then(() => setDone(true), () => undefined)}>
+      {done ? <Check size={14} /> : <Copy size={14} />} {label}
+    </button>
   );
 }
 

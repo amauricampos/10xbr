@@ -4,7 +4,8 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AdminHome, Join } from './pages/Admin';
 import { Brand } from './pages/Brand';
 import { MarketingLanding } from './pages/Marketing';
-import { Landing, QuickCheck, Resume, Setup, SignIn, SignUp } from './pages/Public';
+import { Forgot, Landing, QuickCheck, ResetPassword, Resume, Setup, SignIn, SignUp } from './pages/Public';
+import { UserProfile } from './pages/Users';
 import { Report } from './pages/Review';
 import { StaffHome } from './pages/Staff';
 import { AppHome, StaffCase } from './pages/Workspace';
@@ -23,10 +24,13 @@ function App() {
       <Route path="/check/:kind" element={<QuickCheck />} />
       <Route path="/signup" element={<SignUp />} />
       <Route path="/signin" element={<SignIn />} />
+      <Route path="/forgot" element={<Forgot />} />
+      <Route path="/reset/:token" element={<ResetPassword />} />
       <Route path="/setup" element={<Setup />} />
       <Route path="/app" element={<AppHome />} />
       <Route path="/staff" element={<StaffHome />} />
       <Route path="/admin" element={<AdminHome />} />
+      <Route path="/admin/users/:id" element={<UserProfile />} />
       <Route path="/join/:token" element={<Join />} />
       <Route path="/case/:id" element={<StaffCase />} />
       <Route path="/report/:id" element={<Report />} />
