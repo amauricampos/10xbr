@@ -1,1 +1,161 @@
-# 10xbr
+# 10x BR
+
+A simple platform that evaluates existing businesses for L-1 acquisitions, in two independent tracks:
+
+- **U.S. businesses.** Is the business compliant for purchase by an L-1 investor? If it is, is it healthy and a sound investment? Approved businesses form the catalog shown to candidates.
+- **Candidates with Brazilian businesses.** Does the candidate's company in Brazil qualify them for L-1 and can it support an acquisition? Approved candidates form the second catalog.
+
+The business owner fills in everything. AI takes the first pass on every answer and document, and a person on the team reviews and decides. Pairing a candidate with a business is a later step and is not built.
+
+10x BR screens for feasibility. It does not give legal or investment advice.
+
+## The four stages
+
+Both tracks use the same four stages. Each one opens only when the one before is cleared.
+
+| Stage | What the owner does | Time | Gate |
+| --- | --- | --- | --- |
+| 1. L-1 compliance | Single-tap questions (nine as shipped), one per L-1A requirement ([docs/l1-requirements.md](docs/l1-requirements.md)), then name and email before the result is shown | 2 min | Compliant, Gaps to fix or Not compliant. Scored automatically, and again whenever the owner changes an answer. Not compliant stops the record |
+| 2. Business health | When the business started, then about ten numbers in named sections: revenue for each calendar year since then (up to three, including the current year to date), earnings, staff, price or funds | 5 min | Healthy, Watch or Weak. Scored automatically, and again whenever the owner changes a number. Weak stops the record |
+| 3. Core documents | Signs the NDA in the app, then uploads five documents or links a shared folder | 1 to 3 days | AI reads each file and compares it with the answers. The team approves |
+| 4. Owners and verification | Lists the owners, answers four disclosures, uploads the remaining documents | 1 to 2 weeks | The team approves. The record enters the catalog |
+
+The team can override a stopped gate, send a stage back with a note, decline, or reopen a record. Every decision needs a person and is logged.
+
+## Dashboard and reports
+
+- `/staff`: one table per track, with stage, L-1 result, health result, documents received, asking price or funds, the AI suggestion and status. Tiles filter by Needs review, In progress, Stopped, Catalog and Declined.
+- The Leads tab lists people who saw a result but did not create an account.
+- `/report/:id`: a one-page report for a business or candidate, printable or saved as PDF.
+
+Questions, thresholds and scoring live in `shared/process.ts`. The document lists are in `shared/documents.ts`, and the NDA text in `shared/legal.ts`.
+
+## Admin
+
+`/admin` is for team members marked as admin (the first account created at `/setup` is one):
+
+- **Overview**: a funnel per track, from questions answered to catalog, plus what is waiting for the team, and CSV exports of leads and records.
+- **Questionnaires**: edit the L-1 screen for each track, the business health form for each track, and the final disclosures. See below.
+- **Users**: every account, team and owners, with search. Invite team members by email (single-use link, valid seven days). A row opens the person's page: profile (name and email language can be edited), access (make or remove admin, reset two-step sign-in, sign out everywhere, deactivate, password reset link), open sessions, their records and L-1 result, and the latest activity by or about them.
+- **Activity**: the full audit log.
+
+Reviewers (team members who are not admins) see `/staff` only.
+
+### Leads and their responses
+
+The **Leads** tab on `/admin` lists everyone who answered the L-1 questions and left a name and email, including people who went on to create an account ("Has account", with a link to it). A row opens the responses: each question as it was asked, the answer chosen and how it was graded, then the scorecard the person saw. Search, filter by track, CSV export. Leads on `/staff` (people without an account) open the same view. The responses are the ones given on the public form; answers changed later inside an account are on the record.
+
+### Notifications
+
+`/notifications` (the bell in the header) lets each person choose which emails they receive. They go to the email the account signs in with; there is no separate address. Choices are saved per person (`users.notify`, migration `0009_notifications.sql`); the events and their defaults are in `shared/notify.ts`.
+
+| For | Event | Default |
+| --- | --- | --- |
+| Team | New lead (first time a person leaves their details) | On |
+| Team | New account | Off |
+| Team | Step sent for review | On |
+| Team | Record stopped at a gate | Off |
+| Team | Answers changed, or a step taken back from review | Off |
+| Owner | The team approves, returns, closes or reopens their evaluation | On |
+
+The person who caused an event is not emailed about it, and deactivated accounts receive nothing. Emails a person asks for themselves (scorecard, password reset, invitation) are always sent. Nothing is sent until mail is set up.
+
+### Forgotten passwords
+
+"Forgot your password?" on the sign-in page emails a single-use link, valid one hour, when mail is set up. The answer is the same whether or not the email has an account. Until mail is set up the page tells people to ask the team, and an admin creates a link (valid 24 hours, shown once) from the person's page under **Users**, including their own. Choosing a new password signs the person out everywhere; two-step sign-in still applies. Only a hash of each link is stored (migration `0007_password_resets.sql`).
+
+### Editing the questionnaires
+
+Each questionnaire is edited in both languages, reordered by dragging (or with the arrow keys on the grip), and saved as a new version. The shipped questions live in `shared/process.ts`; saved edits are stored in the `forms` table and applied on top.
+
+- **L-1 screen**: add, remove and reorder questions and answers; set each answer to Met, Needs attention or Not met and write what the scorecard says for it. One Not met still stops the record.
+- **Business health**: add, rename, remove and reorder sections and questions. The built-in questions feed the score: they can be reworded, moved or removed, but their answer type is fixed, and a result is left out of the score while one of its questions is off the form. The revenue questions always stay. Added questions can be a number, percent, amount, choice or text, required or optional; a choice whose answers are graded Good, Fair or Weak counts toward the score, and the rest are listed under the result for the team.
+- **Disclosures**: add, remove, reword and reorder the yes/no questions.
+
+A save applies to everyone who answers from then on. Scorecards and health results already given are stored as shown, so they keep their wording and score. "Reset to original" and "Earlier versions" load a version into the editor; nothing changes until it is saved. A form that cannot be answered or passed (no questions, an empty section, a question with fewer than two answers, every answer Not met) is refused.
+
+### When the L-1 screen fails
+
+A failed screen shows the scorecard, with two ways to correct it: "Change my answers" on the scorecard itself, or "Create an account". The account starts stopped at step 1, where the owner can edit the answers; a passing result opens business health. The result also appears under Leads on `/staff`. If the team sees a way forward, "Open next step" records a reason, emails the person a link, and lets them create an account that starts at business health.
+
+An owner whose record is declined sees the result and the team's note, without the stage navigation or forms.
+
+### Accounts and changing answers
+
+Anyone can create an account, from any scorecard or from "create an account" on the sign-in page. Without quick-check answers they pick a track and answer the questions inside. `/account` (the Account link in the header, for owners and team alike) changes the name, language and password. Changing the password needs the current one and signs out other devices. The email is fixed.
+
+Owners can change their L-1 answers and business numbers whenever the record is in their hands (in progress or stopped). The team cannot edit an owner's answers. Each save is scored again and the record is placed where the new results put it (`placeCase` in `shared/process.ts`):
+
+- A result that now fails stops the record at that step. Documents, the signed NDA and later answers are kept.
+- A result that passes again returns the record to the furthest step it had reached (`cases.reached`, migration `0008_reached.sql`).
+- A gate the team opened by hand stays open when answers change.
+
+While a step is with the team for review the answers are locked. "I need to change something" takes it back; the owner sends it again when ready. Approved and declined records stay locked. The activity log records every change with the result before and after, and for L-1 answers which questions changed.
+
+## Pages
+
+- `/`: overview and instructions for an owner who has already been briefed, then straight to the form.
+- `/sell`: the marketing landing page for U.S. owners who arrive cold. It is kept for later and is not linked from anywhere.
+
+## Scorecard email
+
+After the questions the owner gives a name and email and sees a scorecard: how many of the requirements are met, and each one with its status. The same scorecard is emailed through [Resend](https://resend.com) when these are set:
+
+```bash
+npx wrangler secret put RESEND_API_KEY
+npx wrangler secret put MAIL_FROM       # e.g. 10x BR <hello@10xbr.com>, on a domain verified with Resend
+```
+
+Both are set on the live site ([docs/domain-setup.md](docs/domain-setup.md)). Without them nothing is sent and the scorecard is shown on screen only. The email links to `/resume/:id`, which reopens the saved result. One address receives at most three scorecards a day.
+
+## Stack
+
+- Cloudflare Workers with Hono (`worker/`)
+- React 19 and Vite (`src/`)
+- Cloudflare D1 for data and for encrypted document storage
+- Workers AI for document reading and the first-pass review
+
+## Security
+
+- Passwords: PBKDF2-SHA256 with a per-user salt
+- Sessions: HTTP-only, Secure, SameSite cookies, with Origin checks on every write
+- Staff two-step sign-in with an authenticator app
+- Documents: AES-256-GCM encrypted before storage, type-checked by extension and content, always downloaded as attachments
+- Owners can reach only their own record
+- Append-only audit log, enforced by database triggers
+- Rate limits on sign-in, sign-up, uploads and AI calls
+- Strict Content-Security-Policy and related headers
+- Uploaded files are treated as untrusted input to the AI model, and AI output is never used to make a decision
+
+## Run locally
+
+```bash
+npm install
+cp .dev.vars.example .dev.vars   # then fill in both values
+npm run db:migrate:local
+npm run dev
+```
+
+Open `/setup` and use the `SETUP_TOKEN` value to create the first staff account.
+
+```bash
+npm test          # scoring rules and crypto helpers
+npm run typecheck
+```
+
+## Deploy
+
+```bash
+npm run db:migrate:remote
+npx wrangler secret put DOC_KEY       # base64 of 32 random bytes
+npx wrangler secret put SETUP_TOKEN   # any long random string
+npm run deploy
+```
+
+`DOC_KEY` encrypts every stored document. Keep a copy somewhere safe: without it the files cannot be read.
+
+## More
+
+- [Platform research](docs/research.md)
+- [Moving 10xbr.com to Cloudflare](docs/domain-setup.md)
+- Brand guidelines at `/brand` in the app, with logo files in `public/brand/`

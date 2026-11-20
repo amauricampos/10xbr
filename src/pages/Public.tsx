@@ -1,0 +1,633 @@
+import { ArrowRight, Building2, Check, Clock, FileX, KeyRound, MailCheck, MousePointerClick, Pencil, Plane } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { KINDS, scoreStage1, stage1Complete, type Forms, type Kind, type Stage1Answers } from '../../shared/process';
+import { api, type User } from '../api';
+import { useSession } from '../session';
+import { Stage1Editor, Stage1ResultView, Stage1Wizard } from '../stage1';
+import { Disclaimer, Field, Nav, PageLoader, PasswordInput, useAction } from '../ui';
+
+const DRAFT_KEY = 'quickcheck';
+type Contact = { name: string; email: string };
+/** `cleared`: the team opened the next step for a result that did not pass. */
+type Draft = { kind: Kind; answers: Stage1Answers | null; contact?: Contact | null; cleared?: boolean };
+
+export function loadDraft(forms: Forms): Draft | null {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? 'null') as Draft | null;
+    if (!d || (d.kind !== 'us' && d.kind !== 'br')) return null;
+    const contact = d.contact && typeof d.contact.email === 'string' && typeof d.contact.name === 'string' ? d.contact : null;
+    return { kind: d.kind, answers: d.answers && stage1Complete(d.kind, d.answers, forms) ? d.answers : null, contact, cleared: d.cleared === true };
+  } catch {
+    return null;
+  }
+}
+const saveDraft = (d: Draft) => sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+
+export function Landing() {
+  const { t, user, forms } = useSession();
+  if (user) return <Navigate to="/app" replace />;
+  // The two tracks can have different numbers of questions; a count is shown only when they agree.
+  const count = forms.s1.us.length === forms.s1.br.length ? forms.s1.us.length : null;
+  const facts = [
+    { icon: Clock, text: t('2 minutes', '2 minutos') },
+    { icon: MousePointerClick, text: count ? t(`${count} questions`, `${count} perguntas`) : t('A few questions', 'Poucas perguntas') },
+    { icon: FileX, text: t('No documents', 'Sem documentos') },
+  ];
+  const tracks = [
+    { kind: 'us' as const, icon: Building2, title: t('United States', 'Estados Unidos'), sub: t('I own it and may sell it.', 'Sou o dono e posso vender.') },
+    { kind: 'br' as const, icon: Plane, title: t('Brazil', 'Brasil'), sub: t('I want to buy a U.S. business.', 'Quero comprar um negócio nos EUA.') },
+  ];
+  const later = [
+    { n: 2, title: t('A few numbers', 'Alguns números'), time: t('5 min', '5 min'), text: t('Revenue, profit, team size.', 'Faturamento, lucro, equipe.') },
+    { n: 3, title: t('Five documents', 'Cinco documentos'), time: t('1–3 days', '1–3 dias'), text: t('Upload files you already have.', 'Envie arquivos que você já tem.') },
+    { n: 4, title: t('Final checks', 'Verificações finais'), time: t('1–2 weeks', '1–2 semanas'), text: t('Owners and remaining documents.', 'Sócios e documentos restantes.') },
+  ];
+  const notes = [
+    t('Answer for your business as it is today.', 'Responda sobre o negócio como ele é hoje.'),
+    t('Be as accurate as you can.', 'Seja o mais preciso possível.'),
+    t('Private. Only our team sees it.', 'Privado. Só a nossa equipe vê.'),
+  ];
+  return (
+    <>
+      <Nav />
+      <main className="narrow overview stack" style={{ '--gap': '28px' } as React.CSSProperties}>
+        <div className="stack center" style={{ '--gap': '14px' } as React.CSSProperties}>
+          <h1>{t('Does your business qualify for an international deal?', 'O seu negócio se qualifica para uma venda internacional?')}</h1>
+          <p className="lead-sm">{t('Find out now. It is quick and easy.', 'Descubra agora. É rápido e fácil.')}</p>
+          <div className="facts">
+            {facts.map((f) => (
+              <span key={f.text}>
+                <f.icon size={18} /> {f.text}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <section className="glass pad stack start-box" style={{ '--gap': '14px' } as React.CSSProperties}>
+          <div className="stack" style={{ '--gap': '4px' } as React.CSSProperties}>
+            <p className="eyebrow accent">{t('Start here', 'Comece aqui')}</p>
+            <h2>{t('Where is your business?', 'Onde fica o seu negócio?')}</h2>
+          </div>
+          {tracks.map((k) => (
+            <Link key={k.kind} to={`/check/${k.kind}`} className="start-card">
+              <k.icon size={26} style={{ flex: 'none' }} />
+              <div className="grow">
+                <strong>{k.title}</strong>
+                <span>{k.sub}</span>
+              </div>
+              <span className="go">
+                {t('Start', 'Começar')} <ArrowRight size={18} />
+              </span>
+            </Link>
+          ))}
+        </section>
+
+        <section className="stack" style={{ '--gap': '12px' } as React.CSSProperties}>
+          <h3>{t('What to expect', 'O que esperar')}</h3>
+          <div className="glass phase now">
+            <span className="tag">{t('Today', 'Hoje')}</span>
+            <div className="how-step">
+              <span className="stage-num">1</span>
+              <div className="grow">
+                <div className="row between" style={{ alignItems: 'baseline' }}>
+                  <strong>{count ? t(`${count} quick questions`, `${count} perguntas rápidas`) : t('A few quick questions', 'Algumas perguntas rápidas')}</strong>
+                  <span className="tiny faint">{t('2 min', '2 min')}</span>
+                </div>
+                <p className="small muted">{t('One tap each. You get your result right away.', 'Um toque cada. O resultado sai na hora.')}</p>
+              </div>
+            </div>
+          </div>
+          <div className="glass phase">
+            <span className="tag">{t('Later, only if you qualify', 'Depois, só se você se qualificar')}</span>
+            {later.map((s) => (
+              <div key={s.n} className="how-step">
+                <span className="stage-num dim">{s.n}</span>
+                <div className="grow">
+                  <div className="row between" style={{ alignItems: 'baseline' }}>
+                    <strong>{s.title}</strong>
+                    <span className="tiny faint">{s.time}</span>
+                  </div>
+                  <p className="small muted">{s.text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="stack" style={{ '--gap': '10px' } as React.CSSProperties}>
+          <h3>{t('Good to know', 'Bom saber')}</h3>
+          <ul className="checklist">
+            {notes.map((x) => (
+              <li key={x}>
+                <Check size={16} />
+                <span>{x}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <p className="small muted center">
+          {t('Already started?', 'Já começou?')} <Link to="/signin">{t('Sign in to continue', 'Entre para continuar')}</Link>
+        </p>
+        <Disclaimer />
+      </main>
+    </>
+  );
+}
+
+export function QuickCheck() {
+  const { t, tl, lang, user, forms } = useSession();
+  const params = useParams();
+  const kind: Kind | null = params.kind === 'us' || params.kind === 'br' ? params.kind : null;
+  const [draft, setDraft] = useState<Draft | null>(() => {
+    const d = loadDraft(forms);
+    return d && d.kind === kind ? d : null;
+  });
+  const [form, setForm] = useState<Contact>({ name: '', email: '' });
+  const [emailed, setEmailed] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const { busy, error, run } = useAction();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user) navigate('/app', { replace: true });
+  }, [user, navigate]);
+  useEffect(() => {
+    if (kind) saveDraft(draft ?? { kind, answers: null });
+  }, [kind, draft]);
+
+  if (!kind) return <Navigate to="/" replace />;
+  const answers = kind && draft?.answers && stage1Complete(kind, draft.answers, forms) ? draft.answers : null;
+  const contact = draft?.contact ?? null;
+  const result = answers && contact ? scoreStage1(kind, answers, forms) : null;
+
+  const capture = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!answers) return;
+    run(async () => {
+      const c = { name: form.name.trim(), email: form.email.trim() };
+      const res = await api.post<{ emailed: boolean }>('/leads', { ...c, lang, kind, s1_answers: answers });
+      setEmailed(res.emailed);
+      setDraft({ kind, answers, contact: c });
+    });
+  };
+
+  return (
+    <>
+      <Nav />
+      <main className="narrow" style={{ padding: '36px 0 72px' }}>
+        <p className="eyebrow" style={{ marginBottom: 12 }}>
+          {tl(KINDS[kind].who)}
+        </p>
+        <div className="glass pad">
+          {!answers ? (
+            <Stage1Wizard kind={kind} onDone={(a) => setDraft({ kind, answers: a, contact: null })} />
+          ) : !result ? (
+            <form className="stack fade-in" style={{ '--gap': '18px' } as React.CSSProperties} onSubmit={capture}>
+              <div className="stack" style={{ '--gap': '6px' } as React.CSSProperties}>
+                <h2>{t('Almost done.', 'Quase lá.')}</h2>
+                <p className="muted">
+                  {t(
+                    'While we review and process your responses, please give us your name and email so we can send you the report.',
+                    'Enquanto analisamos e processamos as suas respostas, informe seu nome e e-mail para que possamos enviar o relatório.',
+                  )}
+                </p>
+              </div>
+              <Field label={t('Full name', 'Nome completo')}>
+                <input className="input" required minLength={2} maxLength={120} autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              </Field>
+              <Field label="Email">
+                <input className="input" type="email" required maxLength={200} autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              </Field>
+              {error && <p className="error">{error}</p>}
+              <button className="btn primary lg" disabled={busy}>
+                {t('Send my scorecard', 'Enviar meu scorecard')} <ArrowRight size={18} />
+              </button>
+              <p className="tiny faint">{t('We use your email only to follow up on this evaluation.', 'Usamos seu e-mail apenas para dar seguimento a esta avaliação.')}</p>
+            </form>
+          ) : editing && contact ? (
+            <div className="stack" style={{ '--gap': '18px' } as React.CSSProperties}>
+              <h2>{t('Change your answers', 'Altere suas respostas')}</h2>
+              <Stage1Editor
+                kind={kind}
+                initial={answers}
+                busy={busy}
+                onCancel={() => setEditing(false)}
+                onSave={(next) =>
+                  run(async () => {
+                    const res = await api.post<{ emailed: boolean }>('/leads', { ...contact, lang, kind, s1_answers: next });
+                    setEmailed(res.emailed);
+                    setDraft({ kind, answers: next, contact });
+                    setEditing(false);
+                    window.scrollTo(0, 0);
+                  })
+                }
+              />
+              {error && <p className="error">{error}</p>}
+            </div>
+          ) : (
+            <div className="stack" style={{ '--gap': '24px' } as React.CSSProperties}>
+              {emailed && contact && (
+                <div className="banner good row" style={{ '--gap': '10px' } as React.CSSProperties}>
+                  <MailCheck size={18} style={{ flex: 'none' }} />
+                  <span>
+                    {t('We sent this scorecard to', 'Enviamos este scorecard para')} <strong>{contact.email}</strong>.
+                  </span>
+                </div>
+              )}
+              {!result.passed && draft?.cleared && (
+                <div className="banner good">
+                  {t('Our team reviewed this result and opened the next step for you.', 'Nossa equipe revisou este resultado e liberou a próxima etapa para você.')}
+                </div>
+              )}
+              <Stage1ResultView kind={kind} result={result} />
+              {result.passed || draft?.cleared ? (
+                <>
+                  <Link to="/signup" className="btn primary lg">
+                    {t('Save and continue', 'Salvar e continuar')} <ArrowRight size={18} />
+                  </Link>
+                  <p className="small muted">{t('Next: five minutes on the business numbers.', 'Próximo passo: cinco minutos sobre os números do negócio.')}</p>
+                </>
+              ) : (
+                <div className="glass pad-sm stack" style={{ '--gap': '10px' } as React.CSSProperties}>
+                  <strong>{t('Your result is saved.', 'Seu resultado está salvo.')}</strong>
+                  <p className="small muted">
+                    {t(
+                      'Our team reads every result and will email you if we see a way forward. If an answer was wrong or something changes, you can correct it now, or create an account and update it whenever you need.',
+                      'Nossa equipe lê todo resultado e enviará um e-mail se houver um caminho. Se uma resposta estava errada ou algo mudar, você pode corrigir agora, ou criar uma conta e atualizar quando precisar.',
+                    )}
+                  </p>
+                  <div>
+                    <Link to="/signup" className="btn">
+                      {t('Create an account', 'Criar uma conta')}
+                    </Link>
+                  </div>
+                </div>
+              )}
+              <div>
+                <button type="button" className="btn ghost sm" onClick={() => setEditing(true)}>
+                  <Pencil size={14} /> {t('Change my answers', 'Alterar minhas respostas')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ marginTop: 18 }}>
+          <Disclaimer />
+        </div>
+      </main>
+    </>
+  );
+}
+
+/** Opens the saved result from the link in the scorecard email. */
+export function Resume() {
+  const { id } = useParams();
+  const [to, setTo] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .get<{ kind: Kind; name: string; email: string; answers: Stage1Answers; cleared: boolean }>(`/leads/${id}`)
+      .then((l) => {
+        saveDraft({ kind: l.kind, answers: l.answers, contact: { name: l.name, email: l.email }, cleared: l.cleared });
+        setTo(`/check/${l.kind}`);
+      })
+      .catch(() => setTo('/'));
+  }, [id]);
+  return to ? <Navigate to={to} replace /> : <PageLoader />;
+}
+
+/* ------------------------------------------------------------------ */
+
+function AuthShell({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
+  return (
+    <>
+      <Nav />
+      <main className="narrow" style={{ padding: '48px 0 72px', maxWidth: 460 }}>
+        <div className="glass pad stack" style={{ '--gap': '20px' } as React.CSSProperties}>
+          <div className="stack" style={{ '--gap': '6px' } as React.CSSProperties}>
+            <h2>{title}</h2>
+            {sub && <p className="muted small">{sub}</p>}
+          </div>
+          {children}
+        </div>
+      </main>
+    </>
+  );
+}
+
+export function SignUp() {
+  const { t, lang, setUser, user, config, forms } = useSession();
+  const navigate = useNavigate();
+  const draft = loadDraft(forms);
+  const [form, setForm] = useState({ name: draft?.contact?.name ?? '', email: draft?.contact?.email ?? '', password: '' });
+  // Without answers from the quick check, the person picks a track and answers the questions inside.
+  const [picked, setPicked] = useState<Kind | null>(null);
+  const answers = draft?.answers ?? null;
+  const kind = answers ? draft!.kind : picked;
+  const { busy, error, run } = useAction();
+  if (user) return <Navigate to="/app" replace />;
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    run(async () => {
+      const res = await api.post<{ user: User }>('/auth/register', { ...form, lang, kind, s1_answers: answers ?? undefined });
+      sessionStorage.removeItem(DRAFT_KEY);
+      setUser(res.user);
+      navigate('/app');
+    });
+  };
+  if (!config.openSignup) {
+    return (
+      <AuthShell title={t('Sign-up is by invitation', 'Cadastro somente por convite')}>
+        <p className="muted">{t('Contact 10x BR to get started.', 'Entre em contato com a 10x BR para começar.')}</p>
+      </AuthShell>
+    );
+  }
+  return (
+    <AuthShell
+      title={t('Create your secure account', 'Crie sua conta segura')}
+      sub={
+        answers
+          ? t('Choose a password. Your answers are saved to your private workspace, where you can update them.', 'Escolha uma senha. Suas respostas ficam salvas na sua área privada, onde você pode atualizá-las.')
+          : t('Choose a password. You answer the questions inside, and can update them later.', 'Escolha uma senha. Você responde às perguntas lá dentro e pode atualizá-las depois.')
+      }
+    >
+      <form className="stack" onSubmit={submit}>
+        {!answers && (
+          <Field label={t('Where is your business?', 'Onde fica o seu negócio?')}>
+            <div className="seg">
+              {(['us', 'br'] as const).map((k) => (
+                <button type="button" key={k} aria-pressed={picked === k} onClick={() => setPicked(k)}>
+                  {k === 'us' ? t('In the U.S.', 'Nos EUA') : t('In Brazil', 'No Brasil')}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
+        <Field label={t('Full name', 'Nome completo')}>
+          <input className="input" required minLength={2} autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </Field>
+        <Field label="Email">
+          <input className="input" type="email" required autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        </Field>
+        <Field label={t('Password', 'Senha')} help={t('At least 10 characters.', 'Pelo menos 10 caracteres.')}>
+          <PasswordInput
+            required
+            minLength={10}
+            autoComplete="new-password"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+          />
+        </Field>
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary lg" disabled={busy || !kind}>
+          {t('Create account', 'Criar conta')}
+        </button>
+      </form>
+      <p className="small muted center">
+        {t('Already have an account?', 'Já tem conta?')} <Link to="/signin">{t('Sign in', 'Entrar')}</Link>
+      </p>
+    </AuthShell>
+  );
+}
+
+export function SignIn() {
+  const { t, setUser, user, config } = useSession();
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ email: '', password: '', code: '' });
+  const [needCode, setNeedCode] = useState(false);
+  const { busy, error, run, setError } = useAction();
+  if (user) return <Navigate to="/app" replace />;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await run(async () => {
+      try {
+        const res = await api.post<{ user: User }>('/auth/login', { email: form.email, password: form.password, code: needCode ? form.code : undefined });
+        setUser(res.user);
+        navigate('/app');
+      } catch (err) {
+        if ((err as { code?: string }).code === 'totp_required') {
+          setNeedCode(true);
+          setError('');
+          return;
+        }
+        throw err;
+      }
+    });
+  };
+  return (
+    <AuthShell title={t('Welcome back', 'Bem-vindo de volta')}>
+      <form className="stack" onSubmit={submit}>
+        <Field label="Email">
+          <input className="input" type="email" required autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        </Field>
+        <Field label={t('Password', 'Senha')}>
+          <PasswordInput
+            required
+            autoComplete="current-password"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+          />
+          <Link className="small" to="/forgot" style={{ alignSelf: 'flex-end' }}>
+            {t('Forgot your password?', 'Esqueceu a senha?')}
+          </Link>
+        </Field>
+        {needCode && (
+          <Field label={t('6-digit code from your authenticator app', 'Código de 6 dígitos do seu app autenticador')}>
+            <input
+              className="input"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              required
+              maxLength={7}
+              value={form.code}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
+            />
+          </Field>
+        )}
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary lg" disabled={busy}>
+          {t('Sign in', 'Entrar')}
+        </button>
+      </form>
+      <p className="small muted center">
+        {t('New here?', 'Novo por aqui?')} <Link to="/">{t('Start the quick check', 'Comece pela checagem rápida')}</Link> {t('or', 'ou')}{' '}
+        <Link to="/signup">{t('create an account', 'crie uma conta')}</Link>
+      </p>
+      {config.setupNeeded && (
+        <p className="tiny faint center">
+          <Link to="/setup">{t('First-time staff setup', 'Configuração inicial da equipe')}</Link>
+        </p>
+      )}
+    </AuthShell>
+  );
+}
+
+/** Asks for a link to choose a new password. The answer is the same whether or not the email has an account. */
+export function Forgot() {
+  const { t, user, config } = useSession();
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const { busy, error, run } = useAction();
+  if (user) return <Navigate to="/app" replace />;
+  const back = (
+    <p className="small muted center">
+      <Link to="/signin">{t('Back to sign in', 'Voltar para entrar')}</Link>
+    </p>
+  );
+  if (!config.mail) {
+    return (
+      <AuthShell title={t('Forgot your password?', 'Esqueceu a senha?')}>
+        <p className="muted">
+          {t(
+            'We cannot email reset links yet. Ask your 10x BR contact for a password reset link and they will send you one.',
+            'Ainda não conseguimos enviar links por e-mail. Peça um link de redefinição de senha ao seu contato na 10x BR.',
+          )}
+        </p>
+        {back}
+      </AuthShell>
+    );
+  }
+  if (sent) {
+    return (
+      <AuthShell title={t('Check your email', 'Confira seu e-mail')}>
+        <p className="muted">
+          {t(`If ${email} has an account, a link to choose a new password is on its way. It works once and expires in one hour.`, `Se ${email} tiver uma conta, um link para escolher uma nova senha está a caminho. Ele funciona uma vez e expira em uma hora.`)}
+        </p>
+        <p className="small muted">{t('Nothing after a few minutes? Check the spam folder, then try again.', 'Nada depois de alguns minutos? Veja a caixa de spam e tente de novo.')}</p>
+        {back}
+      </AuthShell>
+    );
+  }
+  return (
+    <AuthShell title={t('Forgot your password?', 'Esqueceu a senha?')} sub={t('Enter your email and we will send you a link to choose a new one.', 'Informe seu e-mail e enviaremos um link para escolher uma nova.')}>
+      <form
+        className="stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(async () => {
+            await api.post('/auth/forgot', { email });
+            setSent(true);
+          });
+        }}
+      >
+        <Field label="Email">
+          <input className="input" type="email" required autoFocus autoComplete="email" maxLength={200} value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary lg" disabled={busy}>
+          {t('Send reset link', 'Enviar link')}
+        </button>
+      </form>
+      {back}
+    </AuthShell>
+  );
+}
+
+/** Opens a reset link and sets the new password. */
+export function ResetPassword() {
+  const { token } = useParams();
+  const { t, refresh } = useSession();
+  const [email, setEmail] = useState<string | null | undefined>(undefined);
+  const [password, setPassword] = useState('');
+  const [done, setDone] = useState(false);
+  const { busy, error, run } = useAction();
+  useEffect(() => {
+    api.get<{ email: string }>(`/auth/reset/${token}`).then((r) => setEmail(r.email), () => setEmail(null));
+  }, [token]);
+  if (email === undefined) return <PageLoader />;
+  if (done) {
+    return (
+      <AuthShell title={t('Password changed', 'Senha alterada')}>
+        <p className="muted">{t('Sign in with your new password. Other devices were signed out.', 'Entre com a nova senha. Os outros dispositivos foram desconectados.')}</p>
+        <Link className="btn primary lg" to="/signin">
+          {t('Sign in', 'Entrar')}
+        </Link>
+      </AuthShell>
+    );
+  }
+  if (email === null) {
+    return (
+      <AuthShell title={t('This link is no longer valid', 'Este link não é mais válido')}>
+        <p className="muted">{t('It was already used or it expired.', 'Ele já foi usado ou expirou.')}</p>
+        <Link className="btn" to="/forgot">
+          {t('Ask for a new link', 'Pedir um novo link')}
+        </Link>
+      </AuthShell>
+    );
+  }
+  return (
+    <AuthShell title={t('Choose a new password', 'Escolha uma nova senha')} sub={email}>
+      <form
+        className="stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(async () => {
+            await api.post('/auth/reset', { token, password });
+            await refresh();
+            setDone(true);
+          });
+        }}
+      >
+        <Field label={t('New password', 'Nova senha')} help={t('At least 10 characters.', 'Pelo menos 10 caracteres.')}>
+          <PasswordInput required autoFocus minLength={10} maxLength={200} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </Field>
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary lg" disabled={busy}>
+          {t('Save password', 'Salvar senha')}
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
+
+export function Setup() {
+  const { t, setUser, config, refresh } = useSession();
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ token: '', name: '', email: '', password: '' });
+  const { busy, error, run } = useAction();
+  if (!config.setupNeeded) return <Navigate to="/signin" replace />;
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    run(async () => {
+      const res = await api.post<{ user: User }>('/auth/setup', form);
+      setUser(res.user);
+      await refresh();
+      navigate('/staff');
+    });
+  };
+  return (
+    <AuthShell
+      title={t('Set up the first staff account', 'Configurar a primeira conta da equipe')}
+      sub={t('This works once, with the setup token from your deployment.', 'Funciona uma única vez, com o token de configuração da sua implantação.')}
+    >
+      <form className="stack" onSubmit={submit}>
+        <Field label={t('Setup token', 'Token de configuração')}>
+          <div className="affix">
+            <span>
+              <KeyRound size={16} />
+            </span>
+            <input className="input" type="password" required value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} />
+          </div>
+        </Field>
+        <Field label={t('Full name', 'Nome completo')}>
+          <input className="input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </Field>
+        <Field label="Email">
+          <input className="input" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        </Field>
+        <Field label={t('Password', 'Senha')} help={t('At least 10 characters.', 'Pelo menos 10 caracteres.')}>
+          <PasswordInput required minLength={10} autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+        </Field>
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary lg" disabled={busy}>
+          {t('Create staff account', 'Criar conta da equipe')}
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
