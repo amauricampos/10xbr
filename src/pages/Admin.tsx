@@ -1,7 +1,7 @@
-import { Check, Copy, Download, MailPlus, Trash2, UserCheck, UserX } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Check, Copy, Download, MailPlus, Search, Trash2, UserCheck, UserX } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { LAST_STAGE, STAGE1_RATING, STATUS, scoreStage1, stage1Complete, type Kind, type Status } from '../../shared/process';
+import { LAST_STAGE, STAGE1_RATING, STATUS, scoreStage1, stage1Complete, type Kind, type L, type Level, type Status } from '../../shared/process';
 import { api, type Lead, type User } from '../api';
 import { useSession } from '../session';
 import { Stage1ResultView } from '../stage1';
@@ -12,6 +12,50 @@ import { Chip, CopyButton, Field, Nav, PageLoader, PasswordInput, fmtDate, s1Ton
 /* ------------------------------------------------------------------ */
 /* Leads: people who answered the questions and have no account        */
 /* ------------------------------------------------------------------ */
+
+/** The questions as asked and the answer the person chose, in the order of the form. */
+function LeadResponses({ lead }: { lead: Lead }) {
+  const { t, tl, forms } = useSession();
+  const questions = forms.s1[lead.kind];
+  const findings = new Map((lead.s1_result?.findings ?? []).map((f) => [f.id, f]));
+  const status: Record<Level, string> = { pass: t('Met', 'Atendido'), caution: t('Needs attention', 'Requer atenção'), fail: t('Not met', 'Não atendido') };
+  const tone: Record<Level, 'good' | 'warn' | 'bad'> = { pass: 'good', caution: 'warn', fail: 'bad' };
+  // Answers to questions that are no longer on the form come last, with what the saved scorecard kept of them.
+  const onForm = new Set(questions.map((q) => q.id));
+  const rows: { id: string; question: L | null; answer: L | null; raw: string; level: Level | null; old: boolean }[] = [
+    ...questions
+      .filter((q) => lead.s1_answers[q.id] !== undefined)
+      .map((q) => {
+        const opt = q.options.find((o) => o.value === lead.s1_answers[q.id]);
+        const f = findings.get(q.id);
+        return { id: q.id, question: q.label, answer: opt?.label ?? f?.label ?? null, raw: lead.s1_answers[q.id], level: f?.level ?? opt?.level ?? null, old: !opt };
+      }),
+    ...Object.keys(lead.s1_answers)
+      .filter((id) => !onForm.has(id))
+      .map((id) => {
+        const f = findings.get(id);
+        return { id, question: f?.topic ?? null, answer: f?.label ?? null, raw: lead.s1_answers[id], level: f?.level ?? null, old: true };
+      }),
+  ];
+  return (
+    <div className="stack" style={{ '--gap': '8px' } as React.CSSProperties}>
+      <h4>{t('Responses', 'Respostas')}</h4>
+      <div className="responses">
+        {rows.map((r, i) => (
+          <div key={r.id} className="response-row">
+            <span className="faint small">{i + 1}</span>
+            <div>
+              <div className="small muted">{r.question ? tl(r.question) : r.id}</div>
+              <div style={{ fontWeight: 600 }}>{r.answer ? tl(r.answer) : r.raw}</div>
+              {r.old && <div className="small faint">{t('From an earlier version of the questions.', 'De uma versão anterior das perguntas.')}</div>}
+            </div>
+            {r.level && <Chip tone={tone[r.level]}>{status[r.level]}</Chip>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function LeadDetail({ lead, reload }: { lead: Lead; reload: () => Promise<void> }) {
   const { t, user, forms } = useSession();
@@ -24,6 +68,7 @@ function LeadDetail({ lead, reload }: { lead: Lead; reload: () => Promise<void> 
 
   return (
     <div className="stack" style={{ '--gap': '18px', padding: '6px 0 10px' } as React.CSSProperties}>
+      <LeadResponses lead={lead} />
       {result ? (
         <Stage1ResultView kind={lead.kind} result={result} />
       ) : (
@@ -35,13 +80,13 @@ function LeadDetail({ lead, reload }: { lead: Lead; reload: () => Promise<void> 
           {t('Next step opened by', 'Próxima etapa liberada por')} {lead.cleared_by} · {fmtDate(lead.cleared_at, 'en')}.{' '}
           {t('They can continue from their link.', 'A pessoa pode continuar pelo link.')}
         </div>
-      ) : lead.s1_rating === 'not_compliant' ? (
+      ) : lead.s1_rating === 'not_compliant' && !lead.user_id ? (
         <div className="glass pad-sm stack">
           <strong>{t('Open the next step anyway', 'Liberar a próxima etapa mesmo assim')}</strong>
           <p className="small muted">
             {t(
-              'This result did not pass, so the person cannot create an account. If you see a way forward, open the next step and they are emailed a link.',
-              'Este resultado não passou, então a pessoa não pode criar conta. Se houver um caminho, libere a próxima etapa e ela recebe um link por e-mail.',
+              'This result did not pass, so an account would start stopped at this step. If you see a way forward, open the next step and they are emailed a link.',
+              'Este resultado não passou, então uma conta começaria parada nesta etapa. Se houver um caminho, libere a próxima etapa e a pessoa recebe um link por e-mail.',
             )}
           </p>
           <textarea className="textarea" rows={2} maxLength={1000} placeholder={t('Why? Kept in the record.', 'Por quê? Fica no registro.')} value={note} onChange={(e) => setNote(e.target.value)} />
@@ -65,6 +110,11 @@ function LeadDetail({ lead, reload }: { lead: Lead; reload: () => Promise<void> 
       {sent && !sent.emailed && <p className="small muted">{t('Email is not set up, so send them the link yourself.', 'O e-mail não está configurado; envie o link você mesmo.')}</p>}
 
       <div className="row wrapping">
+        {lead.user_id && !!user?.is_admin && (
+          <Link className="btn sm" to={`/admin/users/${lead.user_id}`}>
+            {t('Open their account', 'Abrir a conta')}
+          </Link>
+        )}
         <CopyButton text={link} label={t('Copy their link', 'Copiar o link')} />
         <a className="btn sm" href={`mailto:${lead.email}`}>
           {t('Email', 'E-mail')}
@@ -110,6 +160,7 @@ export function LeadsTable({ leads, reload }: { leads: Lead[]; reload: () => Pro
               <td>
                 <Chip tone={s1Tone[l.s1_rating]}>{tl(STAGE1_RATING[l.s1_rating])}</Chip>
                 {l.cleared_at && <> <Chip tone="good">{t('Opened', 'Liberado')}</Chip></>}
+                {l.user_id && <> <Chip>{t('Has account', 'Tem conta')}</Chip></>}
               </td>
               <td className="small">{l.scorecard_sent_at ? t('Emailed', 'Enviado') : <span className="faint">{t('Not emailed', 'Não enviado')}</span>}</td>
               <td className="small muted">{fmtDate(l.updated_at, lang)}</td>
@@ -281,7 +332,64 @@ function Activity() {
   );
 }
 
-const TABS = ['overview', 'forms', 'users', 'activity'] as const;
+type LeadFilter = 'all' | Kind;
+
+/** Every saved L-1 screen. A row opens the person's responses and scorecard. */
+function Leads() {
+  const { t } = useSession();
+  const [leads, setLeads] = useState<Lead[] | null>(null);
+  const [filter, setFilter] = useState<LeadFilter>('all');
+  const [query, setQuery] = useState('');
+  const reload = useCallback(() => api.get<{ leads: Lead[] }>('/admin/leads').then((r) => setLeads(r.leads)), []);
+  useEffect(() => {
+    reload().catch(() => undefined);
+  }, [reload]);
+  const q = query.trim().toLowerCase();
+  const shown = useMemo(() => (leads ?? []).filter((l) => (filter === 'all' || l.kind === filter) && (!q || `${l.name} ${l.email}`.toLowerCase().includes(q))), [leads, filter, q]);
+  if (!leads) return <PageLoader />;
+  const filters: [LeadFilter, string][] = [
+    ['all', t('All', 'Todos')],
+    ['us', t('U.S. business', 'Negócio nos EUA')],
+    ['br', t('Candidate', 'Candidato')],
+  ];
+  return (
+    <div className="stack" style={{ '--gap': '18px' } as React.CSSProperties}>
+      <div className="row between wrapping" style={{ '--gap': '12px' } as React.CSSProperties}>
+        <div className="form-picker">
+          {filters.map(([f, label]) => (
+            <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>
+              {label} <span className="faint">{leads.filter((l) => f === 'all' || l.kind === f).length}</span>
+            </button>
+          ))}
+        </div>
+        <div className="row grow" style={{ '--gap': '8px', justifyContent: 'flex-end' } as React.CSSProperties}>
+          <div className="affix grow" style={{ maxWidth: 320 }}>
+            <span>
+              <Search size={16} />
+            </span>
+            <input className="input" type="search" aria-label={t('Search leads', 'Buscar contatos')} placeholder={t('Name or email', 'Nome ou e-mail')} value={query} onChange={(e) => setQuery(e.target.value)} />
+          </div>
+          <a className="btn" href="/api/admin/export/leads">
+            <Download size={14} /> CSV
+          </a>
+        </div>
+      </div>
+      <p className="small muted">
+        {t(
+          'Everyone who answered the L-1 questions and left a name and email, including people who went on to create an account. Select a row to see the responses.',
+          'Todos que responderam às perguntas L-1 e deixaram nome e e-mail, inclusive quem depois criou uma conta. Selecione uma linha para ver as respostas.',
+        )}
+      </p>
+      {shown.length === 0 ? (
+        <div className="glass pad center muted">{leads.length === 0 ? t('No leads yet.', 'Nenhum contato ainda.') : t('Nothing matches.', 'Nada corresponde.')}</div>
+      ) : (
+        <LeadsTable leads={shown} reload={reload} />
+      )}
+    </div>
+  );
+}
+
+const TABS = ['overview', 'leads', 'forms', 'users', 'activity'] as const;
 type Tab = (typeof TABS)[number];
 
 export function AdminHome() {
@@ -293,7 +401,7 @@ export function AdminHome() {
   if (!user) return <Navigate to="/signin" replace />;
   if (user.role !== 'staff') return <Navigate to="/app" replace />;
   if (!user.is_admin) return <Navigate to="/staff" replace />;
-  const label = { overview: t('Overview', 'Visão geral'), forms: t('Questionnaires', 'Questionários'), users: t('Users', 'Usuários'), activity: t('Activity', 'Atividade') };
+  const label = { overview: t('Overview', 'Visão geral'), leads: t('Leads', 'Contatos'), forms: t('Questionnaires', 'Questionários'), users: t('Users', 'Usuários'), activity: t('Activity', 'Atividade') };
   return (
     <>
       <Nav />
@@ -309,6 +417,7 @@ export function AdminHome() {
           </div>
         </div>
         {tab === 'overview' && <Overview />}
+        {tab === 'leads' && <Leads />}
         {tab === 'forms' && <Questionnaires />}
         {tab === 'users' && <Users />}
         {tab === 'activity' && <Activity />}

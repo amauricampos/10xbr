@@ -117,4 +117,6 @@ export type Lead = {
   scorecard_sent_at: number | null;
   cleared_at: number | null;
   cleared_by: string | null;
+  /** Set on the admin list when the person has since created an account. */
+  user_id?: string | null;
 };

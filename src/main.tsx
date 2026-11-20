@@ -5,6 +5,7 @@ import { Account } from './pages/Account';
 import { AdminHome, Join } from './pages/Admin';
 import { Brand } from './pages/Brand';
 import { MarketingLanding } from './pages/Marketing';
+import { Notifications } from './pages/Notifications';
 import { Forgot, Landing, QuickCheck, ResetPassword, Resume, Setup, SignIn, SignUp } from './pages/Public';
 import { UserProfile } from './pages/Users';
 import { Report } from './pages/Review';
@@ -30,6 +31,7 @@ function App() {
       <Route path="/setup" element={<Setup />} />
       <Route path="/app" element={<AppHome />} />
       <Route path="/account" element={<Account />} />
+      <Route path="/notifications" element={<Notifications />} />
       <Route path="/staff" element={<StaffHome />} />
       <Route path="/admin" element={<AdminHome />} />
       <Route path="/admin/users/:id" element={<UserProfile />} />

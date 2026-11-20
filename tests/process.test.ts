@@ -447,3 +447,19 @@ describe('placing a record after answers change', () => {
     expect(place(fail, pass, 4, [{ action: 'approve', stage: 3, from: 'review' }])).toEqual({ stage: 1, status: 'stopped' });
   });
 });
+
+describe('notification settings', () => {
+  it('uses the defaults for each role until the person chooses', async () => {
+    const { notifyPrefs } = await import('../shared/notify');
+    expect(notifyPrefs('staff', null)).toEqual({ lead_new: true, account_created: false, review_requested: true, record_stopped: false, answers_changed: false });
+    expect(notifyPrefs('applicant', undefined)).toEqual({ decision: true });
+  });
+
+  it('keeps saved choices and drops events the role cannot receive or that do not exist', async () => {
+    const { notifyPrefs } = await import('../shared/notify');
+    expect(notifyPrefs('staff', { lead_new: false, record_stopped: true, decision: true, bogus: true, review_requested: 'yes' })).toEqual({
+      lead_new: false, account_created: false, review_requested: true, record_stopped: true, answers_changed: false,
+    });
+    expect(notifyPrefs('applicant', { decision: false, lead_new: true })).toEqual({ decision: false });
+  });
+});

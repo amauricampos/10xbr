@@ -41,6 +41,25 @@ Questions, thresholds and scoring live in `shared/process.ts`. The document list
 
 Reviewers (team members who are not admins) see `/staff` only.
 
+### Leads and their responses
+
+The **Leads** tab on `/admin` lists everyone who answered the L-1 questions and left a name and email, including people who went on to create an account ("Has account", with a link to it). A row opens the responses: each question as it was asked, the answer chosen and how it was graded, then the scorecard the person saw. Search, filter by track, CSV export. Leads on `/staff` (people without an account) open the same view. The responses are the ones given on the public form; answers changed later inside an account are on the record.
+
+### Notifications
+
+`/notifications` (the bell in the header) lets each person choose which emails they receive. They go to the email the account signs in with; there is no separate address. Choices are saved per person (`users.notify`, migration `0009_notifications.sql`); the events and their defaults are in `shared/notify.ts`.
+
+| For | Event | Default |
+| --- | --- | --- |
+| Team | New lead (first time a person leaves their details) | On |
+| Team | New account | Off |
+| Team | Step sent for review | On |
+| Team | Record stopped at a gate | Off |
+| Team | Answers changed, or a step taken back from review | Off |
+| Owner | The team approves, returns, closes or reopens their evaluation | On |
+
+The person who caused an event is not emailed about it, and deactivated accounts receive nothing. Emails a person asks for themselves (scorecard, password reset, invitation) are always sent. Nothing is sent until mail is set up.
+
 ### Forgotten passwords
 
 "Forgot your password?" on the sign-in page emails a single-use link, valid one hour, when mail is set up. The answer is the same whether or not the email has an account. Until mail is set up the page tells people to ask the team, and an admin creates a link (valid 24 hours, shown once) from the person's page under **Users**, including their own. Choosing a new password signs the person out everywhere; two-step sign-in still applies. Only a hash of each link is stored (migration `0007_password_resets.sql`).

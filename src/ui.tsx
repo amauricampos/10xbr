@@ -1,4 +1,4 @@
-import { Check, Copy, Eye, EyeOff, Loader2, LogOut, ShieldCheck, UserRound } from 'lucide-react';
+import { Check, Copy, Eye, EyeOff, Loader2, Bell, LogOut, ShieldCheck, UserRound } from 'lucide-react';
 import { useState, type InputHTMLAttributes, type ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { api } from './api';
@@ -46,6 +46,11 @@ export function Nav({ children }: { children?: ReactNode }) {
           )}
           {children}
           <LangToggle />
+          {user && (
+            <NavLink className="btn ghost sm navlink" to="/notifications" aria-label={t('Notifications', 'Notificações')} title={t('Notifications', 'Notificações')}>
+              <Bell size={15} />
+            </NavLink>
+          )}
           {user && (
             <NavLink className="btn ghost sm navlink" to="/account" aria-label={t('Account', 'Conta')}>
               <UserRound size={15} /> <span className="hide-sm">{t('Account', 'Conta')}</span>

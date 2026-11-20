@@ -19,11 +19,14 @@ import { HttpError, now, type AppEnv, type Env, type User } from './env';
 import { MAX_FILE_BYTES, MAX_FILES_PER_CASE, cleanFilename, deleteFile, getFile, putFile, sniff } from './storage';
 import { docLabel, docsFor } from '../shared/documents';
 import { NDA_VERSION, ndaText } from '../shared/legal';
+import { notifyPrefs } from '../shared/notify';
 import { mailReady, noticeEmail, scorecardEmail, sendMail } from './scorecard';
 import {
   DEFAULT_FORMS,
   FORM_KEYS,
   LAST_STAGE,
+  STAGE1_RATING,
+  STAGES,
   canonicalForm,
   TEXT_MAX,
   cleanStage2,
@@ -153,6 +156,68 @@ async function audit(c: Context<AppEnv>, action: string, caseId: string | null =
     .run();
 }
 
+type Msg = { subject: string; lines: string[]; cta: string };
+
+/**
+ * Emails the people who chose to hear about an event: the team, or the owner of a record.
+ * Each gets it in their language at the email they sign in with. The person who caused the event is left out.
+ */
+function notify(c: Context<AppEnv>, event: string, to: 'staff' | { userId: string }, path: string, msg: { en: Msg; pt: Msg }, actor?: User) {
+  if (!mailReady(c.env)) return;
+  const origin = new URL(c.req.url).origin;
+  const actorId = (actor ?? c.get('user'))?.id;
+  c.executionCtx.waitUntil(
+    (async () => {
+      const q =
+        to === 'staff'
+          ? c.env.DB.prepare("SELECT id, email, name, role, lang, notify FROM users WHERE role = 'staff' AND disabled = 0")
+          : c.env.DB.prepare('SELECT id, email, name, role, lang, notify FROM users WHERE id = ? AND disabled = 0').bind(to.userId);
+      const { results } = await q.all<{ id: string; email: string; name: string; role: 'staff' | 'applicant'; lang: 'en' | 'pt'; notify: string | null }>();
+      for (const r of results) {
+        if (r.id === actorId || !notifyPrefs(r.role, parse<Record<string, unknown>>(r.notify))[event]) continue;
+        const en = r.lang === 'en';
+        const m = en ? msg.en : msg.pt;
+        const first = r.name.trim().split(/\s+/)[0] ?? '';
+        await sendMail(c.env, {
+          to: r.email,
+          ...noticeEmail({
+            subject: m.subject,
+            greeting: en ? `Hi ${first},` : `Olá, ${first},`,
+            lines: m.lines,
+            cta: m.cta,
+            link: origin + path,
+            footer: en ? `You chose to receive this email. Change it at ${origin}/notifications` : `Você escolheu receber este e-mail. Altere em ${origin}/notifications`,
+          }),
+        });
+      }
+    })().catch((e) => console.error('notify_failed', event, e)),
+  );
+}
+
+type CaseRef = { id: string; company_name: string; kind: Kind };
+const stageName = (k: Kind, stage: number) => STAGES[stage - 1].title[k];
+const recordName = (row: CaseRef, owner: User) => row.company_name || owner.name;
+
+function notifyStopped(c: Context<AppEnv>, row: CaseRef, stage: number, owner: User) {
+  const who = recordName(row, owner);
+  const s = stageName(row.kind, stage);
+  notify(c, 'record_stopped', 'staff', `/case/${row.id}`, {
+    en: { subject: `Stopped at a gate: ${who}`, lines: [`${who} did not pass "${s.en}", so the record is stopped there.`, 'You can open the next step by hand if you see a way forward.'], cta: 'Open the record' },
+    pt: { subject: `Parado em uma etapa: ${who}`, lines: [`${who} não passou em "${s.pt}", então o registro está parado ali.`, 'Você pode liberar a próxima etapa manualmente se houver um caminho.'], cta: 'Abrir o registro' },
+  }, owner);
+}
+
+function notifyChanged(c: Context<AppEnv>, row: CaseRef, stage: number, owner: User, recalled = false) {
+  const who = recordName(row, owner);
+  const s = stageName(row.kind, stage);
+  notify(c, 'answers_changed', 'staff', `/case/${row.id}`, {
+    en: { subject: `${recalled ? 'Taken back from review' : 'Answers changed'}: ${who}`, lines: [recalled ? `${who} took "${s.en}" back from review to change something.` : `${who} changed the answers in "${s.en}". The record was scored again.`], cta: 'Open the record' },
+    pt: { subject: `${recalled ? 'Retirado da revisão' : 'Respostas alteradas'}: ${who}`, lines: [recalled ? `${who} retirou "${s.pt}" da revisão para alterar algo.` : `${who} alterou as respostas em "${s.pt}". O registro foi pontuado de novo.`], cta: 'Abrir o registro' },
+  }, owner);
+}
+
+const trackName = (k: Kind) => (k === 'us' ? { en: 'U.S. business', pt: 'Negócio nos EUA' } : { en: 'Candidate', pt: 'Candidato' });
+
 async function startSession(c: Context<AppEnv>, user: Pick<User, 'id' | 'role'>) {
   const token = randomToken(32);
   const ttl = user.role === 'staff' ? STAFF_SESSION_MS : APPLICANT_SESSION_MS;
@@ -251,6 +316,14 @@ app.post('/auth/register', async (c) => {
   const user: User = { id: userId, email: body.email, name: body.name, role: 'applicant', lang: body.lang, totp_enabled: 0, is_admin: 0 };
   await startSession(c, user);
   await audit(c, 'account.created', caseId, { kind: body.kind }, user);
+  {
+    const k = trackName(body.kind);
+    notify(c, 'account_created', 'staff', `/case/${caseId}`, {
+      en: { subject: `New account: ${body.name}`, lines: [`${body.name} (${body.email}) created an account. Track: ${k.en}.`], cta: 'Open the record' },
+      pt: { subject: `Nova conta: ${body.name}`, lines: [`${body.name} (${body.email}) criou uma conta. Trilha: ${k.pt}.`], cta: 'Abrir o registro' },
+    }, user);
+    if (status === 'stopped') notifyStopped(c, { id: caseId, company_name: '', kind: body.kind }, 1, user);
+  }
   if (s1a) c.executionCtx.waitUntil(runReview(c.env, caseId));
   return c.json({ user, caseId });
 });
@@ -269,10 +342,17 @@ app.post('/leads', async (c) => {
      ON CONFLICT (email, kind) DO UPDATE SET name = excluded.name, lang = excluded.lang,
        cleared_at = CASE WHEN leads.s1_answers = excluded.s1_answers THEN leads.cleared_at ELSE NULL END,
        s1_answers = excluded.s1_answers, s1_rating = excluded.s1_rating, s1_result = excluded.s1_result, updated_at = excluded.updated_at
-     RETURNING id`,
+     RETURNING id, created_at`,
   )
     .bind(randomToken(16), body.email, body.name, body.kind, body.lang, JSON.stringify(body.s1_answers), result.rating, JSON.stringify(result), t, t)
-    .first<{ id: string }>();
+    .first<{ id: string; created_at: number }>();
+  if (row?.created_at === t) {
+    const k = trackName(body.kind);
+    notify(c, 'lead_new', 'staff', '/admin?tab=leads', {
+      en: { subject: `New lead: ${body.name}`, lines: [`${body.name} (${body.email}) answered the L-1 questions. Track: ${k.en}.`, `Result: ${STAGE1_RATING[result.rating].en}.`], cta: 'See the responses' },
+      pt: { subject: `Novo contato: ${body.name}`, lines: [`${body.name} (${body.email}) respondeu às perguntas L-1. Trilha: ${k.pt}.`, `Resultado: ${STAGE1_RATING[result.rating].pt}.`], cta: 'Ver as respostas' },
+    });
+  }
 
   // A recipient gets at most three scorecards a day, so the form cannot be used to flood an inbox.
   let emailed = false;
@@ -309,6 +389,16 @@ app.get('/leads', async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT l.id, l.email, l.name, l.kind, l.lang, l.s1_rating, l.s1_answers, l.s1_result, l.updated_at, l.scorecard_sent_at, l.cleared_at, l.cleared_by FROM leads l
      LEFT JOIN users u ON u.email = l.email WHERE u.id IS NULL ORDER BY l.updated_at DESC LIMIT 500`,
+  ).all();
+  return c.json({ leads: results.map((l) => ({ ...l, s1_answers: parse(l.s1_answers as string), s1_result: parse(l.s1_result as string | null) })) });
+});
+
+/** Every saved L-1 screen with its answers, including people who went on to create an account. */
+app.get('/admin/leads', async (c) => {
+  requireAdmin(c);
+  const { results } = await c.env.DB.prepare(
+    `SELECT l.id, l.email, l.name, l.kind, l.lang, l.s1_rating, l.s1_answers, l.s1_result, l.created_at, l.updated_at, l.scorecard_sent_at, l.cleared_at, l.cleared_by, u.id AS user_id
+     FROM leads l LEFT JOIN users u ON u.email = l.email ORDER BY l.updated_at DESC LIMIT 2000`,
   ).all();
   return c.json({ leads: results.map((l) => ({ ...l, s1_answers: parse(l.s1_answers as string), s1_result: parse(l.s1_result as string | null) })) });
 });
@@ -495,6 +585,22 @@ app.put('/auth/profile', async (c) => {
   await c.env.DB.prepare('UPDATE users SET name = ?, lang = ? WHERE id = ?').bind(body.name, body.lang, u.id).run();
   if (body.name !== u.name) await audit(c, 'profile.updated');
   return c.json({ user: { ...u, ...body } });
+});
+
+app.get('/auth/notifications', async (c) => {
+  const u = requireUser(c);
+  const row = await c.env.DB.prepare('SELECT notify FROM users WHERE id = ?').bind(u.id).first<{ notify: string | null }>();
+  return c.json({ prefs: notifyPrefs(u.role, parse<Record<string, unknown>>(row?.notify ?? null)) });
+});
+
+app.put('/auth/notifications', async (c) => {
+  const u = requireUser(c);
+  const body = z.object({ prefs: z.record(z.string().max(40), z.boolean()) }).parse(await c.req.json());
+  // Only the events this person's role can receive are kept.
+  const prefs = notifyPrefs(u.role, body.prefs);
+  await c.env.DB.prepare('UPDATE users SET notify = ? WHERE id = ?').bind(JSON.stringify(prefs), u.id).run();
+  await audit(c, 'notifications.updated', null, prefs);
+  return c.json({ prefs });
 });
 
 app.post('/auth/password', async (c) => {
@@ -750,6 +856,8 @@ app.put('/cases/:id/stage1', async (c) => {
     rating: result.rating,
     ...(before ? { was: parse<Stage1Result>(row.s1_result)?.rating, changed: forms.s1[row.kind].filter((q) => before[q.id] !== answers[q.id]).map((q) => q.id) } : {}),
   });
+  if (at.status === 'stopped' && row.status !== 'stopped') notifyStopped(c, row, 1, c.get('user')!);
+  else if (before) notifyChanged(c, row, 1, c.get('user')!);
   c.executionCtx.waitUntil(runReview(c.env, row.id));
   return c.json({ result });
 });
@@ -783,6 +891,11 @@ app.put('/cases/:id/stage2', async (c) => {
     .bind(body.company_name, body.location, body.industry, JSON.stringify(answers), JSON.stringify(result), at.stage, at.stage, at.status, now(), row.id)
     .run();
   await audit(c, row.s2_result ? 'stage2.changed' : 'stage2.submitted', row.id, { rating: result.rating, ...(row.s2_result ? { was: parse<Stage2Result>(row.s2_result)?.rating } : {}) });
+  {
+    const named = { id: row.id, kind: row.kind, company_name: body.company_name };
+    if (at.status === 'stopped' && row.status !== 'stopped') notifyStopped(c, named, 2, c.get('user')!);
+    else if (row.s2_result) notifyChanged(c, named, 2, c.get('user')!);
+  }
   c.executionCtx.waitUntil(runReview(c.env, row.id));
   return c.json({ result });
 });
@@ -800,6 +913,7 @@ app.post('/cases/:id/recall', async (c) => {
     .run();
   if (res.meta.changes === 0) throw new HttpError(409, 'not_in_review', 'This record is no longer waiting for review.');
   await audit(c, 'stage.recalled', row.id, { stage: row.stage });
+  notifyChanged(c, row, row.stage, u, true);
   return c.json({ ok: true });
 });
 
@@ -885,6 +999,14 @@ app.post('/cases/:id/submit', async (c) => {
   }
   await c.env.DB.prepare("UPDATE cases SET status = 'review', team_note = NULL, updated_at = ? WHERE id = ?").bind(now(), row.id).run();
   await audit(c, 'stage.submitted', row.id, { stage: row.stage, missing: missing.length });
+  {
+    const who = recordName(row, c.get('user')!);
+    const s = stageName(row.kind, row.stage);
+    notify(c, 'review_requested', 'staff', `/case/${row.id}`, {
+      en: { subject: `Ready for review: ${who}`, lines: [`${who} sent "${s.en}" for review. It is waiting for a decision from the team.`], cta: 'Review the record' },
+      pt: { subject: `Pronto para revisão: ${who}`, lines: [`${who} enviou "${s.pt}" para revisão. Aguarda uma decisão da equipe.`], cta: 'Revisar o registro' },
+    });
+  }
   c.executionCtx.waitUntil(runReview(c.env, row.id));
   return c.json({ ok: true });
 });
@@ -1058,6 +1180,23 @@ app.post('/cases/:id/decide', async (c) => {
     .bind(stage, stage, status, teamNote, JSON.stringify(history.slice(-100)), now(), row.id)
     .run();
   await audit(c, `gate.${body.action}`, row.id, { stage: row.stage, from: row.status, note: body.note });
+  {
+    const s = stageName(row.kind, row.stage);
+    const note = teamNote ? [teamNote] : [];
+    const text = {
+      approve:
+        status === 'approved'
+          ? { en: ['Our team approved your evaluation. Every step is complete.'], pt: ['Nossa equipe aprovou a sua avaliação. Todas as etapas estão concluídas.'] }
+          : { en: [`Our team approved "${s.en}". The next step is open for you.`], pt: [`Nossa equipe aprovou "${s.pt}". A próxima etapa está liberada para você.`] },
+      return: { en: [`Our team sent "${s.en}" back to you with this note:`], pt: [`Nossa equipe devolveu "${s.pt}" para você com esta nota:`] },
+      decline: { en: ['Our team closed your evaluation with this note:'], pt: ['Nossa equipe encerrou a sua avaliação com esta nota:'] },
+      reopen: { en: ['Our team reopened your evaluation. You can continue where you stopped.'], pt: ['Nossa equipe reabriu a sua avaliação. Você pode continuar de onde parou.'] },
+    }[body.action];
+    notify(c, 'decision', { userId: row.user_id }, '/app', {
+      en: { subject: 'An update on your 10x BR evaluation', lines: [...text.en, ...note], cta: 'Open your evaluation' },
+      pt: { subject: 'Uma atualização sobre a sua avaliação na 10x BR', lines: [...text.pt, ...note], cta: 'Abrir a sua avaliação' },
+    });
+  }
   return c.json({ ok: true });
 });
 
