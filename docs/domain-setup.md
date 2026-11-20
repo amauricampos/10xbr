@@ -35,4 +35,9 @@ A domain cannot be transferred within 60 days of registration or of a previous t
 
 ## Email
 
-The domain has no mail records today. To use addresses such as `hello@10xbr.com`, add the mail provider's MX, SPF and DKIM records in Cloudflare DNS after activation. Cloudflare Email Routing is enough for forwarding to an existing inbox.
+Outgoing mail is set up (20 November 2026). `10xbr.com` is a sending domain in Resend, and the site sends as `10x BR <hello@10xbr.com>`.
+
+- DNS in Cloudflare, all DNS-only: TXT `resend._domainkey` (DKIM), CNAME `send` and CNAME `rsend` (SPF and bounces), with the values Resend shows for the domain.
+- Worker secrets: `RESEND_API_KEY` (a key limited to sending from this domain, named "10xbr.com Worker (send only)" in Resend) and `MAIL_FROM`.
+
+Incoming mail is not set up: the domain has no MX record, so a reply to `hello@10xbr.com` bounces. To receive replies, either set the `MAIL_REPLY_TO` secret to an inbox that is read, or turn on Cloudflare Email Routing to forward `hello@10xbr.com` to one.

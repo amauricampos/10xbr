@@ -106,7 +106,7 @@ npx wrangler secret put RESEND_API_KEY
 npx wrangler secret put MAIL_FROM       # e.g. 10x BR <hello@10xbr.com>, on a domain verified with Resend
 ```
 
-Without them nothing is sent and the scorecard is shown on screen only. The email links to `/resume/:id`, which reopens the saved result. One address receives at most three scorecards a day.
+Both are set on the live site ([docs/domain-setup.md](docs/domain-setup.md)). Without them nothing is sent and the scorecard is shown on screen only. The email links to `/resume/:id`, which reopens the saved result. One address receives at most three scorecards a day.
 
 ## Stack
 
