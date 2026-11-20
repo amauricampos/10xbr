@@ -152,7 +152,7 @@ export function Report() {
   const have = required.filter((d) => c.documents.some((x) => x.item_key === d.key)).length;
   const levelTone = { pass: 'good', caution: 'warn', fail: 'bad' } as const;
   const gradeTone = { good: 'good', ok: 'warn', weak: 'bad' } as const;
-  const actionLabel = { approve: t('Approved', 'Aprovado'), return: t('Sent back', 'Devolvido'), decline: t('Declined', 'Recusado'), reopen: t('Reopened', 'Reaberto') };
+  const actionLabel = { approve: t('Approved', 'Aprovado'), return: t('Sent back', 'Devolvido'), decline: t('Declined', 'Recusado'), reopen: t('Reopened', 'Reaberto'), recall: t('Taken back by the owner', 'Retomado pelo dono') };
   const dash = <span className="faint">{t('Not yet', 'Ainda não')}</span>;
 
   return (

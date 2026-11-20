@@ -15,8 +15,8 @@ Both tracks use the same four stages. Each one opens only when the one before is
 
 | Stage | What the owner does | Time | Gate |
 | --- | --- | --- | --- |
-| 1. L-1 compliance | Single-tap questions (nine as shipped), one per L-1A requirement ([docs/l1-requirements.md](docs/l1-requirements.md)), then name and email before the result is shown | 2 min | Compliant, Gaps to fix or Not compliant. Scored automatically. Answers are final. Not compliant stops the record |
-| 2. Business health | When the business started, then about ten numbers in named sections: revenue for each calendar year since then (up to three, including the current year to date), earnings, staff, price or funds | 5 min | Healthy, Watch or Weak. Scored automatically. Weak stops the record |
+| 1. L-1 compliance | Single-tap questions (nine as shipped), one per L-1A requirement ([docs/l1-requirements.md](docs/l1-requirements.md)), then name and email before the result is shown | 2 min | Compliant, Gaps to fix or Not compliant. Scored automatically, and again whenever the owner changes an answer. Not compliant stops the record |
+| 2. Business health | When the business started, then about ten numbers in named sections: revenue for each calendar year since then (up to three, including the current year to date), earnings, staff, price or funds | 5 min | Healthy, Watch or Weak. Scored automatically, and again whenever the owner changes a number. Weak stops the record |
 | 3. Core documents | Signs the NDA in the app, then uploads five documents or links a shared folder | 1 to 3 days | AI reads each file and compares it with the answers. The team approves |
 | 4. Owners and verification | Lists the owners, answers four disclosures, uploads the remaining documents | 1 to 2 weeks | The team approves. The record enters the catalog |
 
@@ -57,9 +57,21 @@ A save applies to everyone who answers from then on. Scorecards and health resul
 
 ### When the L-1 screen fails
 
-A failed screen ends at the scorecard: no account is created and there is nothing more to fill in. The result appears under Leads on `/staff`. If the team sees a way forward, "Open next step" records a reason, emails the person a link, and lets them create an account that starts at business health.
+A failed screen shows the scorecard, with two ways to correct it: "Change my answers" on the scorecard itself, or "Create an account". The account starts stopped at step 1, where the owner can edit the answers; a passing result opens business health. The result also appears under Leads on `/staff`. If the team sees a way forward, "Open next step" records a reason, emails the person a link, and lets them create an account that starts at business health.
 
-An owner whose record is stopped or declined sees the result and the team's note, without the stage navigation or forms.
+An owner whose record is declined sees the result and the team's note, without the stage navigation or forms.
+
+### Accounts and changing answers
+
+Anyone can create an account, from any scorecard or from "create an account" on the sign-in page. Without quick-check answers they pick a track and answer the questions inside. `/account` (the Account link in the header, for owners and team alike) changes the name, language and password. Changing the password needs the current one and signs out other devices. The email is fixed.
+
+Owners can change their L-1 answers and business numbers whenever the record is in their hands (in progress or stopped). The team cannot edit an owner's answers. Each save is scored again and the record is placed where the new results put it (`placeCase` in `shared/process.ts`):
+
+- A result that now fails stops the record at that step. Documents, the signed NDA and later answers are kept.
+- A result that passes again returns the record to the furthest step it had reached (`cases.reached`, migration `0008_reached.sql`).
+- A gate the team opened by hand stays open when answers change.
+
+While a step is with the team for review the answers are locked. "I need to change something" takes it back; the owner sends it again when ready. Approved and declined records stay locked. The activity log records every change with the result before and after, and for L-1 answers which questions changed.
 
 ## Pages
 

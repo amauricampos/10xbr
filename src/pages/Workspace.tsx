@@ -22,7 +22,7 @@ import {
 } from '../../shared/process';
 import { api, type Case } from '../api';
 import { useSession } from '../session';
-import { Stage1ResultView, Stage1Wizard } from '../stage1';
+import { Stage1Editor, Stage1ResultView, Stage1Wizard } from '../stage1';
 import { Chip, Disclaimer, Field, Nav, PageLoader, metricValue, s2Tone, statusTone, useAction } from '../ui';
 import { AuditLog, DocumentsPanel, VerificationPanel } from './Docs';
 import { ReviewCard } from './Review';
@@ -99,8 +99,8 @@ function Workspace({ caseId }: { caseId: string }) {
   const current = view ?? c.stage;
   const props: PanelProps = { c, staff, reload, go: setView };
 
-  // An owner whose evaluation ended sees the result and nothing to fill in.
-  if (!staff && (c.status === 'stopped' || c.status === 'declined')) {
+  // An owner whose evaluation was declined sees the result and nothing to fill in.
+  if (!staff && c.status === 'declined') {
     return (
       <>
         <Nav />
@@ -109,9 +109,9 @@ function Workspace({ caseId }: { caseId: string }) {
             <p className="eyebrow">{tl(KINDS[c.kind].title)}</p>
             <h2>{c.company_name || t('Your evaluation', 'Sua avaliação')}</h2>
           </div>
-          <OwnerBanner c={c} />
+          <OwnerBanner c={c} reload={reload} />
           <section className="glass pad">
-            {c.stage === 1 && c.s1_result && <Stage1ResultView kind={c.kind} result={c.s1_result} />}
+            {c.stage === 1 && <Stage1Panel {...props} />}
             {c.stage === 2 && <Stage2Panel {...props} />}
             {c.stage === 3 && <DocumentsPanel {...props} />}
             {c.stage === 4 && <VerificationPanel {...props} />}
@@ -173,7 +173,7 @@ function Workspace({ caseId }: { caseId: string }) {
           </nav>
 
           <div className="stack" style={{ '--gap': '18px' } as React.CSSProperties}>
-            {staff ? <ReviewCard c={c} reload={reload} /> : <OwnerBanner c={c} />}
+            {staff ? <ReviewCard c={c} reload={reload} /> : <OwnerBanner c={c} reload={reload} />}
             <section className="glass pad fade-in" key={current}>
               {current === 1 && <Stage1Panel {...props} />}
               {current === 2 && <Stage2Panel {...props} />}
@@ -190,8 +190,9 @@ function Workspace({ caseId }: { caseId: string }) {
 }
 
 /** One line telling the owner where things stand. */
-function OwnerBanner({ c }: { c: Case }) {
+function OwnerBanner({ c, reload }: { c: Case; reload: () => Promise<void> }) {
   const { t } = useSession();
+  const { busy, error, run } = useAction();
   const note = c.team_note && (
     <p style={{ whiteSpace: 'pre-wrap' }}>
       <strong>{t('Note from our team:', 'Nota da nossa equipe:')}</strong> {c.team_note}
@@ -215,14 +216,35 @@ function OwnerBanner({ c }: { c: Case }) {
     );
   }
   if (c.status === 'review') {
-    return <div className="banner">{t('With our team for review. Nothing is needed from you right now.', 'Com a nossa equipe para revisão. Nada é necessário de você agora.')}</div>;
+    return (
+      <div className="banner stack" style={{ '--gap': '10px' } as React.CSSProperties}>
+        <span>{t('With our team for review. Nothing is needed from you right now.', 'Com a nossa equipe para revisão. Nada é necessário de você agora.')}</span>
+        <div className="row wrapping" style={{ '--gap': '10px' } as React.CSSProperties}>
+          <button
+            type="button"
+            className="btn sm"
+            disabled={busy}
+            onClick={() =>
+              confirm(t('Take this step back to change something? The review pauses until you send it again.', 'Retomar esta etapa para alterar algo? A revisão fica pausada até você enviar de novo.')) &&
+              run(async () => {
+                await api.post(`/cases/${c.id}/recall`);
+                await reload();
+              })
+            }
+          >
+            <Pencil size={14} /> {t('I need to change something', 'Preciso alterar algo')}
+          </button>
+          {error && <span className="error">{error}</span>}
+        </div>
+      </div>
+    );
   }
   if (c.status === 'stopped') {
     return (
       <div className="banner bad">
         {t(
-          'This step did not pass, so the evaluation stops here. Nothing else is needed from you. Our team reads every result and will email you if we see a way forward.',
-          'Esta etapa não foi aprovada, então a avaliação para aqui. Não é preciso fazer mais nada. Nossa equipe lê todo resultado e enviará um e-mail se houver um caminho.',
+          'This step did not pass, so the evaluation is paused here. If an answer was wrong or something changed, you can correct it below. Our team also reads every result and will email you if we see a way forward.',
+          'Esta etapa não foi aprovada, então a avaliação está pausada aqui. Se uma resposta estava errada ou algo mudou, você pode corrigir abaixo. Nossa equipe também lê todo resultado e enviará um e-mail se houver um caminho.',
         )}
       </div>
     );
@@ -255,22 +277,24 @@ export function PanelHead({ c, stage, children }: { c: Case; stage: number; chil
 
 function Stage1Panel({ c, staff, reload, go }: PanelProps) {
   const { t } = useSession();
-  const { error, run } = useAction();
+  const [editing, setEditing] = useState(false);
+  const { busy, error, run } = useAction();
+  // Owners can correct their answers while the record is in their hands.
+  const editable = !staff && (c.status === 'active' || c.status === 'stopped');
+  const save = (answers: Record<string, string>) =>
+    run(async () => {
+      await api.put(`/cases/${c.id}/stage1`, { answers });
+      // Stay on this step so the new result is seen first.
+      go(1);
+      setEditing(false);
+      await reload();
+    });
 
   if (!c.s1_result && !staff) {
     return (
       <>
         <PanelHead c={c} stage={1} />
-        <Stage1Wizard
-          kind={c.kind}
-          onDone={(answers) =>
-            run(async () => {
-              await api.put(`/cases/${c.id}/stage1`, { answers });
-              go(1);
-              await reload();
-            })
-          }
-        />
+        <Stage1Wizard kind={c.kind} onDone={save} />
         {error && <p className="error">{error}</p>}
       </>
     );
@@ -283,9 +307,24 @@ function Stage1Panel({ c, staff, reload, go }: PanelProps) {
       </>
     );
   }
+  if (editing && editable) {
+    return (
+      <>
+        <PanelHead c={c} stage={1} />
+        <Stage1Editor kind={c.kind} initial={c.s1_answers ?? {}} busy={busy} onSave={save} onCancel={() => setEditing(false)} />
+        {error && <p className="error">{error}</p>}
+      </>
+    );
+  }
   return (
     <>
-      <PanelHead c={c} stage={1} />
+      <PanelHead c={c} stage={1}>
+        {editable && (
+          <button className="btn ghost sm" onClick={() => setEditing(true)}>
+            <Pencil size={14} /> {t('Edit answers', 'Editar respostas')}
+          </button>
+        )}
+      </PanelHead>
       <Stage1ResultView kind={c.kind} result={c.s1_result} />
       {!staff && c.stage === 2 && c.status === 'active' && (
         <button className="btn primary lg" style={{ marginTop: 24 }} onClick={() => go(2)}>
@@ -543,7 +582,7 @@ export function Stage2ResultView({ kind, result }: { kind: Kind; result: Stage2R
 function Stage2Panel({ c, staff, reload, go }: PanelProps) {
   const { t, forms } = useSession();
   const [editing, setEditing] = useState(false);
-  const editable = !staff && c.stage >= 2 && c.stage <= 3 && (c.status === 'active' || c.status === 'stopped');
+  const editable = !staff && c.stage >= 2 && (c.status === 'active' || c.status === 'stopped');
 
   // Staff see the score even if the owner's last edit cleared it.
   const result = c.s2_result ?? (c.s2_answers && safeScore(c.kind, c.s2_answers, forms));

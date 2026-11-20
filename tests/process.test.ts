@@ -415,3 +415,35 @@ describe('editable questionnaires', () => {
     expect(stage4Complete({ owners, disclosures: {} }, mergeForms({ s4: [] }))).toBe(true);
   });
 });
+
+describe('placing a record after answers change', () => {
+  const pass = { passed: true };
+  const fail = { passed: false };
+  const place = (s1: { passed: boolean } | null, s2: { passed: boolean } | null, reached = 1, history: P.GateEvent[] = []) => P.placeCase({ s1, s2, reached, history });
+
+  it('walks the gates in order', () => {
+    expect(place(null, null)).toEqual({ stage: 1, status: 'active' });
+    expect(place(fail, null)).toEqual({ stage: 1, status: 'stopped' });
+    expect(place(pass, null)).toEqual({ stage: 2, status: 'active' });
+    expect(place(pass, fail, 2)).toEqual({ stage: 2, status: 'stopped' });
+    expect(place(pass, pass, 2)).toEqual({ stage: 3, status: 'active' });
+  });
+
+  it('stops a record whose corrected screen no longer passes, whatever step it was on', () => {
+    expect(place(fail, pass, 4)).toEqual({ stage: 1, status: 'stopped' });
+  });
+
+  it('returns to the furthest step reached once the gates pass again', () => {
+    expect(place(pass, pass, 4)).toEqual({ stage: 4, status: 'active' });
+    expect(place(pass, pass, 9)).toEqual({ stage: P.LAST_STAGE, status: 'active' });
+  });
+
+  it('keeps a gate open that the team opened', () => {
+    const opened1 = [{ action: 'approve', stage: 1, from: 'stopped' }];
+    expect(place(fail, null, 2, opened1)).toEqual({ stage: 2, status: 'active' });
+    expect(place(fail, fail, 2, opened1)).toEqual({ stage: 2, status: 'stopped' });
+    expect(place(pass, fail, 3, [{ action: 'approve', stage: 2, from: 'stopped' }])).toEqual({ stage: 3, status: 'active' });
+    // An ordinary approval of a later step opens nothing earlier.
+    expect(place(fail, pass, 4, [{ action: 'approve', stage: 3, from: 'review' }])).toEqual({ stage: 1, status: 'stopped' });
+  });
+});

@@ -59,7 +59,7 @@ export type AiReview = {
   at: number;
   stage: number;
 };
-export type HistoryEntry = { at: number; by: string; action: 'approve' | 'return' | 'decline' | 'reopen'; stage: number; from: string; note: string };
+export type HistoryEntry = { at: number; by: string; action: 'approve' | 'return' | 'decline' | 'reopen' | 'recall'; stage: number; from: string; note: string };
 export type Case = {
   id: string;
   kind: import('../shared/process').Kind;

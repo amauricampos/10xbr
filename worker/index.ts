@@ -30,6 +30,7 @@ import {
   formProblem,
   getForm,
   mergeForms,
+  placeCase,
   scoreStage1,
   scoreStage2,
   stage1Complete,
@@ -41,6 +42,7 @@ import {
   type Stage1Answers,
   type Stage1Result,
   type Stage2Answers,
+  type GateEvent,
   type Stage2Result,
   type Stage4Answers,
   type Status,
@@ -226,16 +228,15 @@ app.post('/auth/register', async (c) => {
     stage = result.passed ? 2 : 1;
     status = result.passed ? 'active' : 'stopped';
     if (!result.passed) {
-      // A failed screen ends at the scorecard. An account opens only after the team clears that result.
+      // A failed screen stops the record at step 1, where the owner can correct an answer. It starts at step 2 when the team already opened it.
       const lead = await c.env.DB.prepare('SELECT s1_answers, cleared_at, cleared_by, cleared_note FROM leads WHERE email = ? AND kind = ?')
         .bind(body.email, body.kind)
         .first<{ s1_answers: string; cleared_at: number | null; cleared_by: string | null; cleared_note: string | null }>();
-      if (!lead?.cleared_at || !sameAnswers(lead.s1_answers, body.s1_answers)) {
-        throw new HttpError(403, 'not_cleared', 'Our team needs to review this result before an account can be created.');
+      if (lead?.cleared_at && sameAnswers(lead.s1_answers, body.s1_answers)) {
+        stage = 2;
+        status = 'active';
+        history = JSON.stringify([{ at: lead.cleared_at, by: lead.cleared_by ?? '', action: 'approve', stage: 1, from: 'stopped', note: lead.cleared_note ?? '' }]);
       }
-      stage = 2;
-      status = 'active';
-      history = JSON.stringify([{ at: lead.cleared_at, by: lead.cleared_by ?? '', action: 'approve', stage: 1, from: 'stopped', note: lead.cleared_note ?? '' }]);
     }
   }
 
@@ -243,8 +244,8 @@ app.post('/auth/register', async (c) => {
     c.env.DB.prepare("INSERT INTO users (id, email, name, role, pw_hash, pw_salt, lang, created_at) VALUES (?, ?, ?, 'applicant', ?, ?, ?, ?)").bind(
       userId, body.email, body.name, hash, salt, body.lang, t,
     ),
-    c.env.DB.prepare('INSERT INTO cases (id, user_id, kind, stage, status, s1_answers, s1_result, history, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
-      caseId, userId, body.kind, stage, status, s1a, s1r, history, t, t,
+    c.env.DB.prepare('INSERT INTO cases (id, user_id, kind, stage, reached, status, s1_answers, s1_result, history, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
+      caseId, userId, body.kind, stage, stage, status, s1a, s1r, history, t, t,
     ),
   ]);
   const user: User = { id: userId, email: body.email, name: body.name, role: 'applicant', lang: body.lang, totp_enabled: 0, is_admin: 0 };
@@ -488,6 +489,33 @@ app.post('/auth/lang', async (c) => {
   return c.json({ ok: true });
 });
 
+app.put('/auth/profile', async (c) => {
+  const u = requireUser(c);
+  const body = z.object({ name: Name, lang: LangZ }).parse(await c.req.json());
+  await c.env.DB.prepare('UPDATE users SET name = ?, lang = ? WHERE id = ?').bind(body.name, body.lang, u.id).run();
+  if (body.name !== u.name) await audit(c, 'profile.updated');
+  return c.json({ user: { ...u, ...body } });
+});
+
+app.post('/auth/password', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, `pw:${u.id}`, 10, 3600);
+  const body = z.object({ current: z.string().max(200), password: Password }).parse(await c.req.json());
+  const row = await c.env.DB.prepare('SELECT pw_hash, pw_salt FROM users WHERE id = ?').bind(u.id).first<{ pw_hash: string; pw_salt: string }>();
+  if (!row || !(await safeEqual((await hashPassword(body.current, row.pw_salt)).hash, row.pw_hash))) {
+    throw new HttpError(400, 'wrong_password', 'Your current password is not correct.');
+  }
+  const { hash, salt } = await hashPassword(body.password);
+  // This device stays signed in; every other session ends.
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE users SET pw_hash = ?, pw_salt = ? WHERE id = ?').bind(hash, salt, u.id),
+    c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').bind(u.id, await sha256Hex(getCookie(c, cookieName(c)) ?? '')),
+    c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(u.id),
+  ]);
+  await audit(c, 'password.changed');
+  return c.json({ ok: true });
+});
+
 app.post('/auth/totp/begin', async (c) => {
   const u = requireUser(c);
   if (u.totp_enabled) throw new HttpError(409, 'totp_already_enabled');
@@ -522,6 +550,7 @@ type CaseRow = {
   location: string;
   industry: string;
   stage: number;
+  reached: number;
   status: Status;
   s1_answers: string | null;
   s1_result: string | null;
@@ -700,26 +729,36 @@ async function runReview(env: Env, caseId: string): Promise<void> {
 
 /* ---------- Owner steps ---------- */
 
+const LOCKED = 'This record is with our team or closed, so its answers cannot be changed right now.';
+
+/** Scores the L-1 screen. The owner can correct it for as long as the record is in their hands. */
 app.put('/cases/:id/stage1', async (c) => {
   const row = await loadCase(c, c.req.param('id'));
-  // Answers are final once scored, so the gate cannot be retried until it passes. The team can override a stop.
-  if (row.s1_result || row.stage > 2 || !open_(row)) throw new HttpError(409, 'stage_locked', 'This step can no longer be changed.');
+  if (row.user_id !== c.get('user')!.id) throw new HttpError(403, 'forbidden', 'Only the account owner can change these answers.');
+  if (!open_(row)) throw new HttpError(409, 'stage_locked', LOCKED);
   const { answers } = z.object({ answers: z.record(z.string(), z.string()) }).parse(await c.req.json());
   const forms = await loadForms(c.env);
   if (!stage1Complete(row.kind, answers, forms)) throw new HttpError(400, 'incomplete', QUESTIONS_CHANGED);
   const result = scoreStage1(row.kind, answers as Stage1Answers, forms);
-  // A changed answer re-opens the gate, so the health result is cleared and re-scored on the next save.
-  await c.env.DB.prepare('UPDATE cases SET s1_answers = ?, s1_result = ?, stage = ?, status = ?, s2_result = NULL, updated_at = ? WHERE id = ?')
-    .bind(JSON.stringify(answers), JSON.stringify(result), result.passed ? 2 : 1, result.passed ? 'active' : 'stopped', now(), row.id)
+  const before = parse<Stage1Answers>(row.s1_answers);
+  const at = placeCase({ s1: result, s2: parse<Stage2Result>(row.s2_result), reached: row.reached, history: parse<GateEvent[]>(row.history) ?? [] });
+  await c.env.DB.prepare('UPDATE cases SET s1_answers = ?, s1_result = ?, stage = ?, reached = MAX(reached, ?), status = ?, updated_at = ? WHERE id = ?')
+    .bind(JSON.stringify(answers), JSON.stringify(result), at.stage, at.stage, at.status, now(), row.id)
     .run();
-  await audit(c, 'stage1.submitted', row.id, { rating: result.rating });
+  // The trail keeps which answers were changed and what the result was before.
+  await audit(c, before ? 'stage1.changed' : 'stage1.submitted', row.id, {
+    rating: result.rating,
+    ...(before ? { was: parse<Stage1Result>(row.s1_result)?.rating, changed: forms.s1[row.kind].filter((q) => before[q.id] !== answers[q.id]).map((q) => q.id) } : {}),
+  });
   c.executionCtx.waitUntil(runReview(c.env, row.id));
   return c.json({ result });
 });
 
 app.put('/cases/:id/stage2', async (c) => {
   const row = await loadCase(c, c.req.param('id'));
-  if (row.stage < 2 || row.stage > 3 || !open_(row)) throw new HttpError(409, 'stage_locked', 'This step is not open.');
+  if (row.user_id !== c.get('user')!.id) throw new HttpError(403, 'forbidden', 'Only the account owner can change these answers.');
+  if (row.stage < 2) throw new HttpError(409, 'stage_locked', 'This step is not open.');
+  if (!open_(row)) throw new HttpError(409, 'stage_locked', LOCKED);
   const body = z
     .object({
       company_name: z.string().trim().min(1).max(160),
@@ -736,15 +775,32 @@ app.put('/cases/:id/stage2', async (c) => {
   if (Math.abs((today.getUTCFullYear() - y) * 12 + (today.getUTCMonth() + 1 - m)) > 1) throw new HttpError(400, 'stale', 'Reload the page and try again.');
   if (!stage2Complete(row.kind, answers, forms)) throw new HttpError(400, 'incomplete', QUESTIONS_CHANGED);
   const result = scoreStage2(row.kind, answers, forms);
-  const stage = result.passed ? Math.max(row.stage, 3) : 2;
+  // Step 2 is only reachable with the first gate open, so a change here never sends the record back to step 1.
+  const at = placeCase({ s1: { passed: true }, s2: result, reached: row.reached, history: parse<GateEvent[]>(row.history) ?? [] });
   await c.env.DB.prepare(
-    'UPDATE cases SET company_name = ?, location = ?, industry = ?, s2_answers = ?, s2_result = ?, stage = ?, status = ?, updated_at = ? WHERE id = ?',
+    'UPDATE cases SET company_name = ?, location = ?, industry = ?, s2_answers = ?, s2_result = ?, stage = ?, reached = MAX(reached, ?), status = ?, updated_at = ? WHERE id = ?',
   )
-    .bind(body.company_name, body.location, body.industry, JSON.stringify(answers), JSON.stringify(result), stage, result.passed ? 'active' : 'stopped', now(), row.id)
+    .bind(body.company_name, body.location, body.industry, JSON.stringify(answers), JSON.stringify(result), at.stage, at.stage, at.status, now(), row.id)
     .run();
-  await audit(c, 'stage2.submitted', row.id, { rating: result.rating });
+  await audit(c, row.s2_result ? 'stage2.changed' : 'stage2.submitted', row.id, { rating: result.rating, ...(row.s2_result ? { was: parse<Stage2Result>(row.s2_result)?.rating } : {}) });
   c.executionCtx.waitUntil(runReview(c.env, row.id));
   return c.json({ result });
+});
+
+/** The owner takes a submitted step back from the team to change something. */
+app.post('/cases/:id/recall', async (c) => {
+  const u = requireUser(c);
+  const row = await loadCase(c, c.req.param('id'));
+  if (row.user_id !== u.id) throw new HttpError(403, 'forbidden');
+  const history = parse<unknown[]>(row.history) ?? [];
+  history.push({ at: now(), by: u.email, action: 'recall', stage: row.stage, from: 'review', note: '' });
+  // One statement, so a decision made by the team at the same moment wins.
+  const res = await c.env.DB.prepare("UPDATE cases SET status = 'active', history = ?, updated_at = ? WHERE id = ? AND status = 'review'")
+    .bind(JSON.stringify(history.slice(-100)), now(), row.id)
+    .run();
+  if (res.meta.changes === 0) throw new HttpError(409, 'not_in_review', 'This record is no longer waiting for review.');
+  await audit(c, 'stage.recalled', row.id, { stage: row.stage });
+  return c.json({ ok: true });
 });
 
 app.post('/cases/:id/sign', async (c) => {
@@ -990,12 +1046,16 @@ app.post('/cases/:id/decide', async (c) => {
     else status = 'declined';
   }
 
-  const history = parse<unknown[]>(row.history) ?? [];
+  const history = parse<GateEvent[]>(row.history) ?? [];
   history.push({ at: now(), by: u.email, action: body.action, stage: row.stage, from: row.status, note: body.note });
+  if (body.action === 'approve' && row.status === 'stopped' && row.stage < 3) {
+    // Opening a failed gate returns the record to where its saved answers put it, which can be past the next step.
+    ({ stage, status } = placeCase({ s1: parse<Stage1Result>(row.s1_result), s2: parse<Stage2Result>(row.s2_result), reached: row.reached, history }));
+  }
   // The owner sees the note when something is asked of them or the record is closed.
   const teamNote = body.action === 'return' || body.action === 'decline' ? body.note : null;
-  await c.env.DB.prepare('UPDATE cases SET stage = ?, status = ?, team_note = ?, history = ?, updated_at = ? WHERE id = ?')
-    .bind(stage, status, teamNote, JSON.stringify(history.slice(-100)), now(), row.id)
+  await c.env.DB.prepare('UPDATE cases SET stage = ?, reached = MAX(reached, ?), status = ?, team_note = ?, history = ?, updated_at = ? WHERE id = ?')
+    .bind(stage, stage, status, teamNote, JSON.stringify(history.slice(-100)), now(), row.id)
     .run();
   await audit(c, `gate.${body.action}`, row.id, { stage: row.stage, from: row.status, note: body.note });
   return c.json({ ok: true });

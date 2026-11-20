@@ -1,10 +1,10 @@
-import { ArrowRight, Building2, Check, Clock, FileX, KeyRound, MailCheck, MousePointerClick, Plane } from 'lucide-react';
+import { ArrowRight, Building2, Check, Clock, FileX, KeyRound, MailCheck, MousePointerClick, Pencil, Plane } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { KINDS, scoreStage1, stage1Complete, type Forms, type Kind, type Stage1Answers } from '../../shared/process';
 import { api, type User } from '../api';
 import { useSession } from '../session';
-import { Stage1ResultView, Stage1Wizard } from '../stage1';
+import { Stage1Editor, Stage1ResultView, Stage1Wizard } from '../stage1';
 import { Disclaimer, Field, Nav, PageLoader, PasswordInput, useAction } from '../ui';
 
 const DRAFT_KEY = 'quickcheck';
@@ -146,6 +146,7 @@ export function QuickCheck() {
   });
   const [form, setForm] = useState<Contact>({ name: '', email: '' });
   const [emailed, setEmailed] = useState(false);
+  const [editing, setEditing] = useState(false);
   const { busy, error, run } = useAction();
   const navigate = useNavigate();
 
@@ -205,6 +206,26 @@ export function QuickCheck() {
               </button>
               <p className="tiny faint">{t('We use your email only to follow up on this evaluation.', 'Usamos seu e-mail apenas para dar seguimento a esta avaliação.')}</p>
             </form>
+          ) : editing && contact ? (
+            <div className="stack" style={{ '--gap': '18px' } as React.CSSProperties}>
+              <h2>{t('Change your answers', 'Altere suas respostas')}</h2>
+              <Stage1Editor
+                kind={kind}
+                initial={answers}
+                busy={busy}
+                onCancel={() => setEditing(false)}
+                onSave={(next) =>
+                  run(async () => {
+                    const res = await api.post<{ emailed: boolean }>('/leads', { ...contact, lang, kind, s1_answers: next });
+                    setEmailed(res.emailed);
+                    setDraft({ kind, answers: next, contact });
+                    setEditing(false);
+                    window.scrollTo(0, 0);
+                  })
+                }
+              />
+              {error && <p className="error">{error}</p>}
+            </div>
           ) : (
             <div className="stack" style={{ '--gap': '24px' } as React.CSSProperties}>
               {emailed && contact && (
@@ -229,16 +250,26 @@ export function QuickCheck() {
                   <p className="small muted">{t('Next: five minutes on the business numbers.', 'Próximo passo: cinco minutos sobre os números do negócio.')}</p>
                 </>
               ) : (
-                <div className="glass pad-sm stack" style={{ '--gap': '6px' } as React.CSSProperties}>
-                  <strong>{t('You are done. Nothing else is needed.', 'Pronto. Não é preciso fazer mais nada.')}</strong>
+                <div className="glass pad-sm stack" style={{ '--gap': '10px' } as React.CSSProperties}>
+                  <strong>{t('Your result is saved.', 'Seu resultado está salvo.')}</strong>
                   <p className="small muted">
                     {t(
-                      'Your result is saved. Our team reads every one and will email you if we see a way forward.',
-                      'Seu resultado está salvo. Nossa equipe lê todos e enviará um e-mail se houver um caminho.',
+                      'Our team reads every result and will email you if we see a way forward. If an answer was wrong or something changes, you can correct it now, or create an account and update it whenever you need.',
+                      'Nossa equipe lê todo resultado e enviará um e-mail se houver um caminho. Se uma resposta estava errada ou algo mudar, você pode corrigir agora, ou criar uma conta e atualizar quando precisar.',
                     )}
                   </p>
+                  <div>
+                    <Link to="/signup" className="btn">
+                      {t('Create an account', 'Criar uma conta')}
+                    </Link>
+                  </div>
                 </div>
               )}
+              <div>
+                <button type="button" className="btn ghost sm" onClick={() => setEditing(true)}>
+                  <Pencil size={14} /> {t('Change my answers', 'Alterar minhas respostas')}
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -290,16 +321,17 @@ export function SignUp() {
   const navigate = useNavigate();
   const draft = loadDraft(forms);
   const [form, setForm] = useState({ name: draft?.contact?.name ?? '', email: draft?.contact?.email ?? '', password: '' });
+  // Without answers from the quick check, the person picks a track and answers the questions inside.
+  const [picked, setPicked] = useState<Kind | null>(null);
+  const answers = draft?.answers ?? null;
+  const kind = answers ? draft!.kind : picked;
   const { busy, error, run } = useAction();
   if (user) return <Navigate to="/app" replace />;
-  if (!draft?.answers) return <Navigate to="/" replace />;
-  // A result that did not pass ends at the scorecard until the team opens the next step.
-  if (!draft.cleared && !scoreStage1(draft.kind, draft.answers, forms).passed) return <Navigate to={`/check/${draft.kind}`} replace />;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     run(async () => {
-      const res = await api.post<{ user: User }>('/auth/register', { ...form, lang, kind: draft.kind, s1_answers: draft.answers ?? undefined });
+      const res = await api.post<{ user: User }>('/auth/register', { ...form, lang, kind, s1_answers: answers ?? undefined });
       sessionStorage.removeItem(DRAFT_KEY);
       setUser(res.user);
       navigate('/app');
@@ -315,9 +347,24 @@ export function SignUp() {
   return (
     <AuthShell
       title={t('Create your secure account', 'Crie sua conta segura')}
-      sub={t('Choose a password. Your answers are saved to your private workspace.', 'Escolha uma senha. Suas respostas ficam salvas na sua área privada.')}
+      sub={
+        answers
+          ? t('Choose a password. Your answers are saved to your private workspace, where you can update them.', 'Escolha uma senha. Suas respostas ficam salvas na sua área privada, onde você pode atualizá-las.')
+          : t('Choose a password. You answer the questions inside, and can update them later.', 'Escolha uma senha. Você responde às perguntas lá dentro e pode atualizá-las depois.')
+      }
     >
       <form className="stack" onSubmit={submit}>
+        {!answers && (
+          <Field label={t('Where is your business?', 'Onde fica o seu negócio?')}>
+            <div className="seg">
+              {(['us', 'br'] as const).map((k) => (
+                <button type="button" key={k} aria-pressed={picked === k} onClick={() => setPicked(k)}>
+                  {k === 'us' ? t('In the U.S.', 'Nos EUA') : t('In Brazil', 'No Brasil')}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
         <Field label={t('Full name', 'Nome completo')}>
           <input className="input" required minLength={2} autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </Field>
@@ -334,7 +381,7 @@ export function SignUp() {
           />
         </Field>
         {error && <p className="error">{error}</p>}
-        <button className="btn primary lg" disabled={busy}>
+        <button className="btn primary lg" disabled={busy || !kind}>
           {t('Create account', 'Criar conta')}
         </button>
       </form>
@@ -407,7 +454,8 @@ export function SignIn() {
         </button>
       </form>
       <p className="small muted center">
-        {t('New here?', 'Novo por aqui?')} <Link to="/">{t('Start the quick check', 'Comece pela checagem rápida')}</Link>
+        {t('New here?', 'Novo por aqui?')} <Link to="/">{t('Start the quick check', 'Comece pela checagem rápida')}</Link> {t('or', 'ou')}{' '}
+        <Link to="/signup">{t('create an account', 'crie uma conta')}</Link>
       </p>
       {config.setupNeeded && (
         <p className="tiny faint center">

@@ -53,6 +53,54 @@ export function Stage1Wizard({ kind, onDone }: { kind: Kind; onDone: (a: Stage1A
   );
 }
 
+/** Every question on one page with the current answer selected, for correcting answers already given. */
+export function Stage1Editor({ kind, initial, busy, onSave, onCancel }: { kind: Kind; initial: Stage1Answers; busy?: boolean; onSave: (a: Stage1Answers) => void; onCancel: () => void }) {
+  const { t, tl, forms } = useSession();
+  const questions = forms.s1[kind];
+  // An answer that is no longer offered counts as unanswered.
+  const [answers, setAnswers] = useState<Stage1Answers>(() => Object.fromEntries(questions.filter((q) => q.options.some((o) => o.value === initial[q.id])).map((q) => [q.id, initial[q.id]])));
+  const missing = questions.filter((q) => !answers[q.id]).length;
+  const changed = questions.filter((q) => answers[q.id] !== initial[q.id]).length;
+  return (
+    <form
+      className="stack fade-in"
+      style={{ '--gap': '22px' } as React.CSSProperties}
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave(Object.fromEntries(questions.map((q) => [q.id, answers[q.id]])));
+      }}
+    >
+      <p className="muted small">{t('Change only what was answered incorrectly. Be as accurate as you can: documents confirm these answers later.', 'Altere apenas o que foi respondido incorretamente. Seja o mais preciso possível: os documentos confirmam estas respostas depois.')}</p>
+      {questions.map((q, i) => (
+        <fieldset key={q.id} className="form-section">
+          <legend>
+            <span className="num">{i + 1}</span> {tl(q.label)}
+          </legend>
+          {q.help && <p className="help">{tl(q.help)}</p>}
+          <div className="stack" style={{ '--gap': '8px' } as React.CSSProperties}>
+            {q.options.map((o) => (
+              <button type="button" key={o.value} className="option compact" aria-pressed={answers[q.id] === o.value} onClick={() => setAnswers({ ...answers, [q.id]: o.value })}>
+                <span>{tl(o.label)}</span>
+                {answers[q.id] === o.value && <Check size={16} style={{ flex: 'none' }} />}
+              </button>
+            ))}
+          </div>
+          {!answers[q.id] && <p className="error">{t('Choose an answer.', 'Escolha uma resposta.')}</p>}
+        </fieldset>
+      ))}
+      <div className="row wrapping save-bar" style={{ '--gap': '10px' } as React.CSSProperties}>
+        <button className="btn primary" disabled={busy || missing > 0 || changed === 0}>
+          {t('Save and re-check', 'Salvar e reavaliar')}
+        </button>
+        <button type="button" className="btn ghost" onClick={onCancel}>
+          {t('Cancel', 'Cancelar')}
+        </button>
+        <span className="small muted">{changed === 0 ? t('No changes yet.', 'Nenhuma alteração ainda.') : t(`${changed} answer(s) changed.`, `${changed} resposta(s) alterada(s).`)}</span>
+      </div>
+    </form>
+  );
+}
+
 const ringColor = { compliant: 'var(--good)', gaps: 'var(--warn)', not_compliant: 'var(--bad)' } as const;
 
 const MARK = { pass: Check, caution: AlertTriangle, fail: X } as const;

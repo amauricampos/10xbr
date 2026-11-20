@@ -1209,6 +1209,23 @@ export function stage4Complete(a: Stage4Answers | null | undefined, forms: Forms
 
 export type Status = 'active' | 'review' | 'stopped' | 'approved' | 'declined';
 
+/** A team decision kept in a record's history. */
+export type GateEvent = { action: string; stage: number; from: string; at?: number; by?: string; note?: string };
+
+/**
+ * Where a record stands once its answers are scored again. Steps 1 and 2 are gates:
+ * a failed one stops the record unless the team already opened the next step for it.
+ * With both gates open the record returns to the furthest step it had reached.
+ */
+export function placeCase(o: { s1: { passed: boolean } | null; s2: { passed: boolean } | null; reached: number; history: GateEvent[] }): { stage: number; status: 'active' | 'stopped' } {
+  const opened = (stage: number) => o.history.some((h) => h.action === 'approve' && h.stage === stage && h.from === 'stopped');
+  if (!o.s1) return { stage: 1, status: 'active' };
+  if (!o.s1.passed && !opened(1)) return { stage: 1, status: 'stopped' };
+  if (!o.s2) return { stage: 2, status: 'active' };
+  if (!o.s2.passed && !opened(2)) return { stage: 2, status: 'stopped' };
+  return { stage: Math.min(LAST_STAGE, Math.max(3, o.reached)), status: 'active' };
+}
+
 export const STATUS: Record<Status, L> = {
   active: { en: 'In progress', pt: 'Em andamento' },
   review: { en: 'Needs review', pt: 'Aguardando revisão' },

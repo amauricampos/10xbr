@@ -550,6 +550,15 @@ footer.foot {
   border-color: var(--azure);
   background: rgba(59, 155, 255, 0.16);
 }
+.option.compact {
+  min-height: 44px;
+  padding: 9px 14px;
+  font-size: 0.94rem;
+  border-radius: var(--r-sm);
+}
+.option.compact:hover {
+  transform: none;
+}
 .fade-in {
   animation: fade 0.28s ease both;
 }
